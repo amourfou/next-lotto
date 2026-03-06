@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --lotto-gray: #9ca3af;
+  --lotto-blue: #3b82f6;
+  --lotto-red: #ef4444;
+  --lotto-green: #22c55e;
+  --lotto-yellow: #eab308;
+}
+
+body {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
