@@ -24,10 +24,11 @@ export async function POST() {
       );
     }
 
-    const latestRound = parseInt(lines[0], 10);
-    if (Number.isNaN(latestRound) || latestRound < 1) {
+    // 첫 줄: 회차 개수. 두 번째 줄부터 최신회차 → 1회차 순(내림차순)
+    const totalRounds = parseInt(lines[0], 10);
+    if (Number.isNaN(totalRounds) || totalRounds < 1) {
       return NextResponse.json(
-        { error: "첫 줄은 최신 회차 번호(숫자)여야 합니다." },
+        { error: "첫 줄은 회차 개수(숫자)여야 합니다." },
         { status: 400 }
       );
     }
@@ -47,9 +48,9 @@ export async function POST() {
 
     const rows: { round: number; nums: number[]; bonus: number }[] = [];
     for (let i = 1; i < lines.length; i++) {
-      const round = latestRound - i + 1;
+      const round = totalRounds - i + 1; // 2번째 줄=최신(totalRounds회), 3번째=totalRounds-1회, ...
       if (round < 1) break;
-      const parts = lines[i].split(/\t/).map((s) => parseInt(s.trim(), 10));
+      const parts = lines[i].trim().split(/\s+/).map((s) => parseInt(s, 10));
       if (parts.length < 7) continue;
       const nums = parts.slice(0, 6);
       const bonus = parts[6];
