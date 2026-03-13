@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMaxLottoRound, insertLottoRound } from "@/lib/lottoSupabaseUtils";
+import {
+  getLastOfficialRound,
+  deleteLottoDrawnByRound,
+  insertLottoDrawnBatch,
+} from "@/lib/lottoSupabaseUtils";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +18,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const normalized: number[][] = [];
     for (const row of games) {
       if (!Array.isArray(row) || row.length !== 6) {
         return NextResponse.json(
@@ -25,29 +30,19 @@ export async function POST(request: NextRequest) {
       if (nums.some((n) => Number.isNaN(n))) {
         return NextResponse.json({ error: "유효하지 않은 번호가 있습니다." }, { status: 400 });
       }
+      normalized.push([...nums].sort((a, b) => a - b));
     }
 
-    const maxRound = await getMaxLottoRound();
-    const startRound = maxRound + 1;
+    const lastOfficial = await getLastOfficialRound();
+    const nextRound = lastOfficial + 1;
 
-    for (let i = 0; i < games.length; i++) {
-      const sorted = [...games[i]].map((n) => Math.min(45, Math.max(1, Number(n)))).sort((a, b) => a - b);
-      await insertLottoRound({
-        round: startRound + i,
-        n1: sorted[0],
-        n2: sorted[1],
-        n3: sorted[2],
-        n4: sorted[3],
-        n5: sorted[4],
-        n6: sorted[5],
-        bonus: 0,
-      });
-    }
+    await deleteLottoDrawnByRound(nextRound);
+    await insertLottoDrawnBatch(nextRound, normalized);
 
     return NextResponse.json({
       success: true,
-      message: `${games.length}개 회차 저장됨 (${startRound}회 ~ ${startRound + games.length - 1}회)`,
-      startRound,
+      message: `${nextRound}회차용 추출 번호 ${games.length}게임 저장됨`,
+      nextRound,
       count: games.length,
     });
   } catch (e) {

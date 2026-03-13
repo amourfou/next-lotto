@@ -106,6 +106,58 @@ export async function upsertLottoRounds(
   if (error) throw error;
 }
 
+// --- lotto_drawn (다음 회차용 추출 번호, 회차당 여러 게임) ---
+
+/** 해당 회차의 기존 추출 번호 삭제 (같은 회차로 다시 저장할 때 덮어쓰기) */
+export async function deleteLottoDrawnByRound(round: number): Promise<void> {
+  const { error } = await supabase.from("lotto_drawn").delete().eq("round", round);
+  if (error) {
+    if (error.code === "42P01") return; // table does not exist
+    throw error;
+  }
+}
+
+export async function insertLottoDrawnBatch(round: number, games: number[][]): Promise<void> {
+  if (games.length === 0) return;
+  const rows = games.map((nums, gameIndex) => ({
+    round,
+    game_index: gameIndex,
+    n1: nums[0],
+    n2: nums[1],
+    n3: nums[2],
+    n4: nums[3],
+    n5: nums[4],
+    n6: nums[5],
+  }));
+  const { error } = await supabase.from("lotto_drawn").insert(rows);
+  if (error) throw error;
+}
+
+/** lotto_drawn 테이블에 저장된 모든 추출 번호 세트 (6개 번호 배열 목록) */
+export async function getAllLottoDrawnSets(): Promise<number[][]> {
+  const sets: number[][] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("lotto_drawn")
+      .select("n1, n2, n3, n4, n5, n6")
+      .order("round", { ascending: true })
+      .order("game_index", { ascending: true })
+      .range(offset, offset + SUPABASE_DEFAULT_MAX_ROWS - 1);
+    if (error) {
+      if (error.code === "42P01") return []; // table does not exist
+      throw error;
+    }
+    const chunk = data ?? [];
+    for (const r of chunk) {
+      sets.push([r.n1, r.n2, r.n3, r.n4, r.n5, r.n6].sort((a, b) => a - b));
+    }
+    if (chunk.length < SUPABASE_DEFAULT_MAX_ROWS) break;
+    offset += SUPABASE_DEFAULT_MAX_ROWS;
+  }
+  return sets;
+}
+
 // --- lotto_analysis ---
 
 export async function getLottoAnalysisRow() {
@@ -199,7 +251,10 @@ export async function getExclusionSets(): Promise<{
   const winningSets: number[][] = [];
   const drawnSets: number[][] = [];
 
-  if (maxRound < 1) return { winningSets, drawnSets };
+  if (maxRound < 1) {
+    const fromDrawn = await getAllLottoDrawnSets().catch(() => []);
+    return { winningSets, drawnSets: fromDrawn };
+  }
 
   const officialCap = lastOfficial > 0 ? lastOfficial : maxRound;
   let offset = 0;
@@ -219,6 +274,7 @@ export async function getExclusionSets(): Promise<{
     offset += SUPABASE_DEFAULT_MAX_ROWS;
   }
 
+  // 추출 번호: 기존 lotto_rounds(round > lastOfficial) + lotto_drawn 전부
   if (lastOfficial > 0) {
     offset = 0;
     while (true) {
@@ -237,6 +293,8 @@ export async function getExclusionSets(): Promise<{
       offset += SUPABASE_DEFAULT_MAX_ROWS;
     }
   }
+  const fromLottoDrawn = await getAllLottoDrawnSets().catch(() => []);
+  for (const s of fromLottoDrawn) drawnSets.push(s);
 
   return { winningSets, drawnSets };
 }
