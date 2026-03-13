@@ -81,8 +81,7 @@ export async function GET() {
     console.error("pension GET error:", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "연금복권 데이터 조회 중 오류가 발생했습니다." },
-      { status: 500 },
-      { headers: NO_CACHE_HEADERS }
+      { status: 500, headers: NO_CACHE_HEADERS }
     );
   }
 }
