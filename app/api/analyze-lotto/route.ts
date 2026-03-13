@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import {
+  getAllLottoRoundsForAnalysis,
+  upsertLottoAnalysis,
+} from "@/lib/lottoSupabaseUtils";
+
+export const dynamic = "force-dynamic";
 
 export async function POST() {
   try {
-    const db = getDb();
-    const rows = db
-      .prepare(
-        "SELECT n1, n2, n3, n4, n5, n6, bonus FROM lotto_rounds ORDER BY round ASC"
-      )
-      .all() as { n1: number; n2: number; n3: number; n4: number; n5: number; n6: number; bonus: number }[];
+    const rows = await getAllLottoRoundsForAnalysis();
 
     if (rows.length === 0) {
       return NextResponse.json(
@@ -33,7 +33,6 @@ export async function POST() {
     const hot = sorted.slice(0, 10).map((x) => x.num);
     const cold = sorted.slice(-10).reverse().map((x) => x.num);
 
-    // 합계 패턴: 각 회차 6개 번호 합 (21~255)
     const sums: number[] = [];
     for (const r of rows) {
       const sum = r.n1 + r.n2 + r.n3 + r.n4 + r.n5 + r.n6;
@@ -47,7 +46,6 @@ export async function POST() {
       sumHistogram[s] = (sumHistogram[s] ?? 0) + 1;
     }
 
-    // 연속번호 패턴: 각 회차에서 연속된 번호 쌍 개수 (예: 3,4 → 1쌍, 10,11,12 → 2쌍)
     const consecutiveCounts: number[] = [];
     const maxRunLengths: number[] = [];
     for (const r of rows) {
@@ -101,17 +99,32 @@ export async function POST() {
       updatedAt: new Date().toISOString(),
     });
 
-    db.prepare(
-      "INSERT OR REPLACE INTO lotto_analysis (id, data, created_at) VALUES (1, ?, datetime('now'))"
-    ).run(data);
+    await upsertLottoAnalysis(data);
+
+    const analysis = {
+      totalRounds: rows.length,
+      frequencies: freq,
+      hot,
+      cold,
+      sumPattern: {
+        min: sumMin,
+        max: sumMax,
+        avg: sumAvg,
+        histogram: sumHistogram,
+      },
+      consecutivePattern: {
+        avgConsecutivePairs,
+        avgMaxRun,
+        pairDistribution: consecutiveDist,
+        maxRunDistribution: maxRunDist,
+      },
+      updatedAt: new Date().toISOString(),
+    };
 
     return NextResponse.json({
       success: true,
       message: `분석 완료 (${rows.length}회차 기준)`,
-      hot,
-      cold,
-      sumPattern: { min: sumMin, max: sumMax, avg: sumAvg },
-      consecutivePattern: { avgConsecutivePairs, avgMaxRun },
+      analysis,
     });
   } catch (e) {
     console.error("analyze-lotto error:", e);

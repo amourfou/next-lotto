@@ -405,13 +405,16 @@ export function LottoPageBody() {
         if (!json.error) setSavedRounds({ data: json.data ?? [], total: json.total ?? 0 });
       })
       .catch(() => setSavedRounds(null));
-    fetch("/api/lotto/analysis")
+    // 항상 전체 회차 기준으로 분석 실행 (저장된 1000회차 분석이 아닌)
+    setAnalysisLoading(true);
+    fetch("/api/analyze-lotto", { method: "POST" })
       .then((res) => res.json())
       .then((json) => {
         if (json.analysis) setAnalysis(json.analysis);
         else setAnalysis(null);
       })
-      .catch(() => setAnalysis(null));
+      .catch(() => setAnalysis(null))
+      .finally(() => setAnalysisLoading(false));
   }, []);
 
   useEffect(() => {
@@ -720,12 +723,13 @@ export function LottoPageBody() {
 
   const scope = {
     games, setGames, gameCount, setGameCount, isDrawing, filterStates, currentCategory,
-    groupCounts, groupEnabled, groupAtMost, seedLoading, seedMessage, activeTab, sumMin, sumMax,
+    groupCounts, groupEnabled, groupAtMost, seedLoading, seedMessage, activeTab, setActiveTab, sumMin, sumMax,
     maxConsecutivePairs, savedRounds, savedRoundsLoading, showDbScreen, analysis, analysisLoading,
     saveDrawnLoading, saveDrawnMessage, fetchDbScreenData, handleDraw, canDraw,
     handleCategoryChange, handleNumberClick, handleGroupCountChange, handleToggleGroupEnabled, handleSetGroupAtMost,
     TABS, mustInclude, mustExclude, atLeastOne, useGroupCountMode, poolSize,
     setSaveDrawnMessage, setSaveDrawnLoading, setSavedRounds, setAnalysis, setAnalysisLoading, setSeedMessage, setSeedLoading, setShowDbScreen,
+    setSumMin, setSumMax, setMaxConsecutivePairs,
     MIN_GAMES, MAX_GAMES, SUM_RANGE, PICK_COUNT, AnalysisResultView,
   };
   return React.createElement(LottoPageMainContent, { scope });

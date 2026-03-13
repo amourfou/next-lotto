@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getMaxLottoRound, insertLottoRound } from "@/lib/lottoSupabaseUtils";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,19 +27,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const db = getDb();
-    const maxRow = db.prepare("SELECT COALESCE(MAX(round), 0) as maxRound FROM lotto_rounds").get() as {
-      maxRound: number;
-    };
-    const startRound = maxRow.maxRound + 1;
-
-    const insert = db.prepare(
-      `INSERT INTO lotto_rounds (round, n1, n2, n3, n4, n5, n6, bonus) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`
-    );
+    const maxRound = await getMaxLottoRound();
+    const startRound = maxRound + 1;
 
     for (let i = 0; i < games.length; i++) {
       const sorted = [...games[i]].map((n) => Math.min(45, Math.max(1, Number(n)))).sort((a, b) => a - b);
-      insert.run(startRound + i, sorted[0], sorted[1], sorted[2], sorted[3], sorted[4], sorted[5]);
+      await insertLottoRound({
+        round: startRound + i,
+        n1: sorted[0],
+        n2: sorted[1],
+        n3: sorted[2],
+        n4: sorted[3],
+        n5: sorted[4],
+        n6: sorted[5],
+        bonus: 0,
+      });
     }
 
     return NextResponse.json({

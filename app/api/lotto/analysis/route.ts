@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getLottoAnalysisRow } from "@/lib/lottoSupabaseUtils";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const db = getDb();
-    const row = db
-      .prepare("SELECT data, created_at FROM lotto_analysis WHERE id = 1")
-      .get() as { data: string; created_at: string } | undefined;
+    const row = await getLottoAnalysisRow();
 
     if (!row) {
       return NextResponse.json({ analysis: null });

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { getDb } from "@/lib/db";
+import { upsertLottoRounds } from "@/lib/lottoSupabaseUtils";
+
+export const dynamic = "force-dynamic";
 
 const LOTTO_FILE = path.join(process.cwd(), "LottoNumber.txt");
 
@@ -24,7 +26,6 @@ export async function POST() {
       );
     }
 
-    // 첫 줄: 회차 개수. 두 번째 줄부터 최신회차 → 1회차 순(내림차순)
     const totalRounds = parseInt(lines[0], 10);
     if (Number.isNaN(totalRounds) || totalRounds < 1) {
       return NextResponse.json(
@@ -33,32 +34,38 @@ export async function POST() {
       );
     }
 
-    const db = getDb();
-    const insert = db.prepare(`
-      INSERT OR REPLACE INTO lotto_rounds (round, n1, n2, n3, n4, n5, n6, bonus)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    const rows: {
+      round: number;
+      n1: number;
+      n2: number;
+      n3: number;
+      n4: number;
+      n5: number;
+      n6: number;
+      bonus: number;
+    }[] = [];
 
-    const insertMany = db.transaction((rows: { round: number; nums: number[]; bonus: number }[]) => {
-      for (const { round, nums, bonus } of rows) {
-        if (nums.length !== 6) continue;
-        insert.run(round, nums[0], nums[1], nums[2], nums[3], nums[4], nums[5], bonus);
-      }
-    });
-
-    const rows: { round: number; nums: number[]; bonus: number }[] = [];
     for (let i = 1; i < lines.length; i++) {
-      const round = totalRounds - i + 1; // 2번째 줄=최신(totalRounds회), 3번째=totalRounds-1회, ...
+      const round = totalRounds - i + 1;
       if (round < 1) break;
       const parts = lines[i].trim().split(/\s+/).map((s) => parseInt(s, 10));
       if (parts.length < 7) continue;
       const nums = parts.slice(0, 6);
       const bonus = parts[6];
       if (nums.some((n) => Number.isNaN(n)) || Number.isNaN(bonus)) continue;
-      rows.push({ round, nums, bonus });
+      rows.push({
+        round,
+        n1: nums[0],
+        n2: nums[1],
+        n3: nums[2],
+        n4: nums[3],
+        n5: nums[4],
+        n6: nums[5],
+        bonus,
+      });
     }
 
-    insertMany(rows);
+    await upsertLottoRounds(rows);
 
     return NextResponse.json({
       success: true,

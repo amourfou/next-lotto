@@ -62,10 +62,21 @@ export default function PensionPage() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="border-b border-gray-200 bg-white/80 backdrop-blur">
-        <div className="container mx-auto px-3 py-2 flex items-center justify-between">
-          <Link href="/" className="text-sm text-gray-600 hover:text-gray-900">
-            ← 첫 페이지
-          </Link>
+        <div className="container mx-auto px-3 py-2 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+            >
+              🏠 첫 페이지
+            </Link>
+            <Link
+              href="/lotto"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+            >
+              🎱 로또 6/45
+            </Link>
+          </div>
           <span className="text-sm font-medium text-gray-700">연금복권 패턴 분석</span>
         </div>
       </div>

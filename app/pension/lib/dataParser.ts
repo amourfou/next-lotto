@@ -113,13 +113,13 @@ export function getDataByRange(lotteryData: LotteryData[], startOrder: number, e
 }
 
 /**
- * PensionLottery.json 파일을 로드하고 파싱하여 분석 가능한 형태로 반환
- * @param url - JSON 파일의 URL (기본값: '/PensionLottery.json')
+ * 연금복권 데이터를 로드하고 파싱하여 분석 가능한 형태로 반환 (DB 연동)
+ * @param url - 데이터 API URL (기본값: '/api/pension')
  * @returns 파싱된 데이터, 숫자 배열, 통계 정보
  */
-export async function loadLotteryData(url: string = '/PensionLottery.json') {
-  const response = await fetch(url);
-  
+export async function loadLotteryData(url: string = '/api/pension') {
+  const response = await fetch(url, { cache: 'no-store' });
+
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);
   }

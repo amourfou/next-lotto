@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import {
+  getLatestLottoDrawSettings,
+  insertLottoDrawSettings,
+} from "@/lib/lottoSupabaseUtils";
+
+export const dynamic = "force-dynamic";
 
 export type DrawSettingsPayload = {
   gameCount: number;
@@ -26,26 +31,7 @@ function parseFilterStates(raw: string): Record<number, string> {
 
 export async function GET() {
   try {
-    const db = getDb();
-    const row = db
-      .prepare(
-        `SELECT game_count, filter_states, group_counts, group_enabled, group_at_most, pattern_settings, created_at, id
-         FROM lotto_draw_settings
-         ORDER BY id DESC
-         LIMIT 1`
-      )
-      .get() as
-      | {
-          game_count: number;
-          filter_states: string;
-          group_counts: string;
-          group_enabled: string;
-          group_at_most: string;
-          pattern_settings: string | null;
-          created_at: string;
-          id: number;
-        }
-      | undefined;
+    const row = await getLatestLottoDrawSettings();
 
     if (!row) {
       return NextResponse.json({ settings: null });
@@ -109,16 +95,18 @@ export async function POST(request: NextRequest) {
           })
         : "{}";
 
-    const db = getDb();
-    const stmt = db.prepare(
-      `INSERT INTO lotto_draw_settings (game_count, filter_states, group_counts, group_enabled, group_at_most, pattern_settings)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    );
-    const result = stmt.run(gameCount, filterStates, groupCounts, groupEnabled, groupAtMost, patternSettings);
+    const id = await insertLottoDrawSettings({
+      game_count: gameCount,
+      filter_states: filterStates,
+      group_counts: groupCounts,
+      group_enabled: groupEnabled,
+      group_at_most: groupAtMost,
+      pattern_settings: patternSettings,
+    });
 
     return NextResponse.json({
       success: true,
-      id: result.lastInsertRowid,
+      id,
       message: "설정이 회차로 저장되었습니다.",
     });
   } catch (e) {

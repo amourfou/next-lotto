@@ -230,9 +230,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                     return;
                   }
                   s.setSeedMessage({ type: "ok", text: data.message ?? "분석 완료" });
-                  const aRes = await fetch("/api/lotto/analysis");
-                  const aJson = await aRes.json();
-                  if (aJson.analysis) s.setAnalysis(aJson.analysis);
+                  if (data.analysis) s.setAnalysis(data.analysis);
                 } catch {
                   s.setSeedMessage({ type: "error", text: "분석 통신 실패" });
                 } finally {
