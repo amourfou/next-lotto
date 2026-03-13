@@ -16,6 +16,7 @@ import GroupCountSelector, {
 } from "../components/GroupCountSelector";
 import { LottoPagePart1 } from "./LottoPagePart1";
 import { LottoPageMainContent } from "./LottoPageMainContent";
+import { SumHistogramChart } from "../components/SumHistogramChart";
 
 const MIN = 1;
 const MAX = 45;
@@ -72,13 +73,25 @@ function getConsecutivePairs(nums: number[]): number {
   return pairs;
 }
 
+function countGroup9(nums: number[]): number {
+  return nums.filter((n) => n >= 1 && n <= 9).length;
+}
+function countGroup45(nums: number[]): number {
+  return nums.filter((n) => n >= 37 && n <= 45).length;
+}
+
 function meetsPatternConstraints(
   nums: number[],
   sumMin: number | null,
   sumMax: number | null,
-  maxConsecutivePairs: number | null
+  maxConsecutivePairs: number | null,
+  allowedGroup9_45Keys: Set<string> | null
 ): boolean {
   if (nums.length !== PICK_COUNT) return false;
+  if (allowedGroup9_45Keys != null && allowedGroup9_45Keys.size > 0) {
+    const key = `${countGroup9(nums)},${countGroup45(nums)}`;
+    if (!allowedGroup9_45Keys.has(key)) return false;
+  }
   const sum = nums.reduce((a, b) => a + b, 0);
   const effSumMin = sumMin != null ? Math.max(SUM_RANGE.min, Math.min(SUM_RANGE.max, sumMin)) : null;
   const effSumMax = sumMax != null ? Math.max(SUM_RANGE.min, Math.min(SUM_RANGE.max, sumMax)) : null;
@@ -93,6 +106,7 @@ type AnalysisResult = {
   hot: number[];
   cold: number[];
   sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> };
+  group9_45Distribution?: Record<string, number>;
   consecutivePattern?: {
     avgConsecutivePairs: number;
     avgMaxRun: number;
@@ -178,7 +192,7 @@ function AnalysisResultView({ analysis }: { analysis: AnalysisResult }) {
 
       {analysis.sumPattern && (
         <div className="rounded-lg bg-slate-700/40 p-3 space-y-3">
-          <p className="text-slate-400 text-xs font-medium">합계 패턴 (6개 번호 합)</p>
+          <p className="text-slate-400 text-xs font-medium">합계 패턴 (6개 번호 합) — X: 합계 21~255, Y: 당첨건수</p>
           <div className="flex gap-4 flex-wrap">
             <div className="flex flex-col">
               <span className="text-slate-500 text-xs">최소</span>
@@ -193,6 +207,11 @@ function AnalysisResultView({ analysis }: { analysis: AnalysisResult }) {
               <span className="text-slate-200 font-semibold">{analysis.sumPattern.avg}</span>
             </div>
           </div>
+          <SumHistogramChart
+            histogram={analysis.sumPattern.histogram}
+            avg={analysis.sumPattern.avg}
+            showFilter={false}
+          />
           {sumEntries.length > 0 && (
             <div className="border-t border-slate-600 pt-2">
               <p className="text-slate-500 text-xs mb-2">합계별 회차 수 (상위 10개)</p>
@@ -261,6 +280,62 @@ function AnalysisResultView({ analysis }: { analysis: AnalysisResult }) {
           </div>
         </div>
       )}
+
+      {analysis.group9_45Distribution && analysis.totalRounds > 0 && (() => {
+        const dist = analysis.group9_45Distribution;
+        const total = analysis.totalRounds;
+        let maxCount = 0;
+        for (let n9 = 0; n9 <= 3; n9++) {
+          for (let n45 = 0; n45 <= 3; n45++) {
+            if (n9 + n45 <= 6) {
+              const c = dist[`${n9},${n45}`] ?? 0;
+              if (c > maxCount) maxCount = c;
+            }
+          }
+        }
+        return (
+          <div className="rounded-lg bg-slate-700/40 p-3 space-y-2">
+            <p className="text-slate-400 text-xs font-medium">9·45 조합 (진할수록 확률 높음)</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="text-slate-400">
+                    <th className="p-1 border border-slate-600">9\45</th>
+                    {[0, 1, 2, 3].map((n45) => (
+                      <th key={n45} className="p-1 border border-slate-600">45:{n45}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[0, 1, 2, 3].map((n9) => (
+                    <tr key={n9}>
+                      <td className="p-1 border border-slate-600 text-slate-400 font-medium">9:{n9}</td>
+                      {[0, 1, 2, 3].map((n45) => {
+                        if (n9 + n45 > 6) return <td key={n45} className="p-1 border border-slate-600 bg-slate-800/50" />;
+                        const key = `${n9},${n45}`;
+                        const count = dist[key] ?? 0;
+                        const pct = ((count / total) * 100).toFixed(1);
+                        const intensity = maxCount > 0 ? count / maxCount : 0;
+                        const opacity = 0.25 + 0.7 * intensity;
+                        return (
+                          <td
+                            key={n45}
+                            className="p-1 border border-slate-600 text-slate-300"
+                            style={{ backgroundColor: `rgba(245, 158, 11, ${opacity})` }}
+                            title={`${count}회 (${pct}%)`}
+                          >
+                            {count}회 <span className="text-slate-900 font-semibold">{pct}%</span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -416,10 +491,11 @@ export function LottoPageBody() {
   const [groupAtMost, setGroupAtMost] = useState<GroupAtMost>(getDefaultGroupAtMost);
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedMessage, setSeedMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<"number" | "group" | "sum" | "consecutive">("number");
+  const [activeTab, setActiveTab] = useState<"number" | "group" | "group9_45" | "sum" | "consecutive">("number");
   const [sumMin, setSumMin] = useState<number | null>(null);
   const [sumMax, setSumMax] = useState<number | null>(null);
   const [maxConsecutivePairs, setMaxConsecutivePairs] = useState<number | null>(null);
+  const [selectedGroup9_45Keys, setSelectedGroup9_45Keys] = useState<Set<string>>(new Set());
   const [savedRounds, setSavedRounds] = useState<{
     data: { round: number; n1: number; n2: number; n3: number; n4: number; n5: number; n6: number; bonus: number }[];
     total: number;
@@ -431,6 +507,7 @@ export function LottoPageBody() {
     hot: number[];
     cold: number[];
     sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> };
+    group9_45Distribution?: Record<string, number>;
     consecutivePattern?: {
       avgConsecutivePairs: number;
       avgMaxRun: number;
@@ -497,14 +574,29 @@ export function LottoPageBody() {
     };
   }, []);
 
-  // DB에 저장된 분석 결과 불러오기 → 합계 필터 기본값 등에 사용
+  // DB에 저장된 분석 결과 불러오기. 9·45 조합이 없으면 재분석해서 DB·화면 반영
   useEffect(() => {
     let cancelled = false;
     fetch("/api/lotto/analysis")
       .then((res) => res.json())
-      .then((json) => {
+      .then(async (json) => {
         if (cancelled) return;
-        if (json.analysis) setAnalysis(json.analysis);
+        if (json.analysis) {
+          setAnalysis(json.analysis);
+          const has94 = json.analysis.group9_45Distribution && Object.keys(json.analysis.group9_45Distribution).length > 0;
+          if (json.analysis.totalRounds > 0 && !has94) {
+            setAnalysisLoading(true);
+            try {
+              const res = await fetch("/api/analyze-lotto", { method: "POST" });
+              const data = await res.json();
+              if (!cancelled && data.analysis) setAnalysis(data.analysis);
+            } catch {
+              if (!cancelled) setAnalysis(json.analysis);
+            } finally {
+              if (!cancelled) setAnalysisLoading(false);
+            }
+          }
+        }
       })
       .catch(() => {});
     return () => {
@@ -564,7 +656,7 @@ export function LottoPageBody() {
           const next: GroupCounts = { ...getDefaultGroupCounts() };
           for (const key of numKeys) {
             const v = s.groupCounts[key] ?? s.groupCounts[String(key)];
-            if (typeof v === "number" && v >= 0 && v <= 6) next[key] = v;
+            if (typeof v === "number" && v >= 0) next[key] = Math.min(3, v);
           }
           setGroupCounts(next);
         }
@@ -589,6 +681,7 @@ export function LottoPageBody() {
           if (typeof ps.sumMin === "number" && ps.sumMin >= SUM_RANGE.min && ps.sumMin <= SUM_RANGE.max) setSumMin(ps.sumMin);
           if (typeof ps.sumMax === "number" && ps.sumMax >= SUM_RANGE.min && ps.sumMax <= SUM_RANGE.max) setSumMax(ps.sumMax);
           if (typeof ps.maxConsecutivePairs === "number" && ps.maxConsecutivePairs >= 0 && ps.maxConsecutivePairs <= 5) setMaxConsecutivePairs(ps.maxConsecutivePairs);
+          if (Array.isArray(ps.group9_45Keys)) setSelectedGroup9_45Keys(new Set(ps.group9_45Keys));
         }
       })
       .catch(() => {});
@@ -600,9 +693,31 @@ export function LottoPageBody() {
   const TABS = [
     { id: "number" as const, label: "번호 선택 (포함/제외 또는 사용)" },
     { id: "group" as const, label: "그룹별 개수" },
+    { id: "group9_45" as const, label: "9·45 조합" },
     { id: "sum" as const, label: "합계" },
     { id: "consecutive" as const, label: "연속" },
   ];
+
+  const toggleGroup9_45Key = useCallback((key: string) => {
+    setSelectedGroup9_45Keys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const runAnalysis = useCallback(() => {
+    setAnalysisLoading(true);
+    fetch("/api/analyze-lotto", { method: "POST" })
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.analysis) setAnalysis(json.analysis);
+        else setAnalysis(null);
+      })
+      .catch(() => setAnalysis(null))
+      .finally(() => setAnalysisLoading(false));
+  }, []);
 
   const { mustInclude, mustExclude, atLeastOne } = useMemo(() => {
     const include: number[] = [];
@@ -763,7 +878,9 @@ export function LottoPageBody() {
   const handleDraw = useCallback(() => {
     if (!canDraw) return;
     const n = Math.min(MAX_GAMES, Math.max(MIN_GAMES, gameCount));
-    const hasPatternConstraint = sumMin != null || sumMax != null || maxConsecutivePairs != null;
+    const allowedGroup9_45 = selectedGroup9_45Keys.size > 0 ? selectedGroup9_45Keys : null;
+    const hasPatternConstraint =
+      sumMin != null || sumMax != null || maxConsecutivePairs != null || allowedGroup9_45 != null;
     const maxRetry = hasPatternConstraint ? 200 : 1;
     setIsDrawing(true);
     setGames([]);
@@ -780,7 +897,7 @@ export function LottoPageBody() {
             ? drawByGroupCounts(groupCounts, groupEnabled, groupAtMost, mustInclude, mustExclude, [])
             : drawLottoNumbers(mustInclude, mustExclude, atLeastOne, []);
           if (result.length !== PICK_COUNT) continue;
-          if (!meetsPatternConstraints(result, sumMin, sumMax, maxConsecutivePairs)) continue;
+          if (!meetsPatternConstraints(result, sumMin, sumMax, maxConsecutivePairs, allowedGroup9_45)) continue;
           const key = toSetKey(result);
           if (forbiddenSetKeys.has(key) || alreadyDrawnKeysInBatch.has(key)) continue;
           break;
@@ -799,7 +916,12 @@ export function LottoPageBody() {
           groupCounts,
           groupEnabled,
           groupAtMost,
-          patternSettings: { sumMin, sumMax, maxConsecutivePairs },
+          patternSettings: {
+            sumMin,
+            sumMax,
+            maxConsecutivePairs,
+            group9_45Keys: Array.from(selectedGroup9_45Keys),
+          },
         }),
       }).catch(() => {});
     }, 400);
@@ -816,6 +938,7 @@ export function LottoPageBody() {
     sumMin,
     sumMax,
     maxConsecutivePairs,
+    selectedGroup9_45Keys,
     exclusionWinningSetKeys,
     exclusionDrawnSetKeys,
   ]);
@@ -823,14 +946,14 @@ export function LottoPageBody() {
   const scope = {
     games, setGames, gameCount, setGameCount, isDrawing, filterStates, currentCategory,
     groupCounts, groupEnabled, groupAtMost, seedLoading, seedMessage, activeTab, setActiveTab, sumMin, sumMax,
-    maxConsecutivePairs, savedRounds, savedRoundsLoading, showDbScreen, analysis, analysisLoading,
+    maxConsecutivePairs, selectedGroup9_45Keys, toggleGroup9_45Key, runAnalysis, savedRounds, savedRoundsLoading, showDbScreen, analysis, analysisLoading,
     saveDrawnLoading, saveDrawnMessage, fetchDbScreenData, handleDraw, canDraw,
     handleCategoryChange, handleNumberClick, handleGroupCountChange, handleToggleGroupEnabled, handleSetGroupAtMost,
     TABS, mustInclude, mustExclude, atLeastOne, useGroupCountMode, poolSize,
     setSaveDrawnMessage, setSaveDrawnLoading, setSavedRounds, setAnalysis, setAnalysisLoading, setSeedMessage, setSeedLoading, setShowDbScreen,
     setSumMin, setSumMax, setMaxConsecutivePairs,
     fetchExclusionData,
-    MIN_GAMES, MAX_GAMES, SUM_RANGE, PICK_COUNT, AnalysisResultView,
+    MIN_GAMES, MAX_GAMES, SUM_RANGE, PICK_COUNT, AnalysisResultView, SumHistogramChart,
   };
   return React.createElement(LottoPageMainContent, { scope });
 }

@@ -79,6 +79,14 @@ export async function POST() {
     const avgMaxRun =
       Math.round((maxRunLengths.reduce((a, b) => a + b, 0) / maxRunLengths.length) * 100) / 100;
 
+    const group9_45Distribution: Record<string, number> = {};
+    for (const r of rows) {
+      const n9 = [r.n1, r.n2, r.n3, r.n4, r.n5, r.n6].filter((n) => n >= 1 && n <= 9).length;
+      const n45 = [r.n1, r.n2, r.n3, r.n4, r.n5, r.n6].filter((n) => n >= 37 && n <= 45).length;
+      const key = `${n9},${n45}`;
+      group9_45Distribution[key] = (group9_45Distribution[key] ?? 0) + 1;
+    }
+
     const data = JSON.stringify({
       totalRounds: rows.length,
       frequencies: freq,
@@ -96,6 +104,7 @@ export async function POST() {
         pairDistribution: consecutiveDist,
         maxRunDistribution: maxRunDist,
       },
+      group9_45Distribution,
       updatedAt: new Date().toISOString(),
     });
 
@@ -118,13 +127,17 @@ export async function POST() {
         pairDistribution: consecutiveDist,
         maxRunDistribution: maxRunDist,
       },
+      group9_45Distribution,
       updatedAt: new Date().toISOString(),
     };
 
     return NextResponse.json({
       success: true,
       message: `분석 완료 (${rows.length}회차 기준)`,
-      analysis,
+      analysis: {
+        ...analysis,
+        group9_45Distribution: analysis.group9_45Distribution ?? {},
+      },
     });
   } catch (e) {
     console.error("analyze-lotto error:", e);

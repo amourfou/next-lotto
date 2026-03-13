@@ -3,7 +3,8 @@
 import { LOTTO_GROUPS } from "./GroupExclude";
 
 const PICK_COUNT = 6;
-const MAX_PER_GROUP = 6;
+/** 그룹별 4개는 제외, 최대 3개까지만 설정 가능 */
+const MAX_PER_GROUP = 3;
 
 export type GroupCounts = Record<number, number>;
 

@@ -12,7 +12,12 @@ export type DrawSettingsPayload = {
   groupCounts: Record<number, number>;
   groupEnabled: Record<number, boolean>;
   groupAtMost: Record<number, boolean>;
-  patternSettings?: { sumMin?: number | null; sumMax?: number | null; maxConsecutivePairs?: number | null };
+  patternSettings?: {
+    sumMin?: number | null;
+    sumMax?: number | null;
+    maxConsecutivePairs?: number | null;
+    group9_45Keys?: string[];
+  };
 };
 
 function parseFilterStates(raw: string): Record<number, string> {
@@ -37,7 +42,12 @@ export async function GET() {
       return NextResponse.json({ settings: null });
     }
 
-    let patternSettings: { sumMin?: number | null; sumMax?: number | null; maxConsecutivePairs?: number | null } = {};
+    let patternSettings: {
+      sumMin?: number | null;
+      sumMax?: number | null;
+      maxConsecutivePairs?: number | null;
+      group9_45Keys?: string[];
+    } = {};
     try {
       if (row.pattern_settings) patternSettings = JSON.parse(row.pattern_settings);
     } catch {}
@@ -92,6 +102,7 @@ export async function POST(request: NextRequest) {
             sumMin: body.patternSettings.sumMin ?? null,
             sumMax: body.patternSettings.sumMax ?? null,
             maxConsecutivePairs: body.patternSettings.maxConsecutivePairs ?? null,
+            group9_45Keys: Array.isArray(body.patternSettings.group9_45Keys) ? body.patternSettings.group9_45Keys : [],
           })
         : "{}";
 

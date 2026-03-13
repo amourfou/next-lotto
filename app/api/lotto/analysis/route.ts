@@ -22,6 +22,7 @@ export async function GET() {
         avg: number;
         histogram: Record<number, number>;
       };
+      group9_45Distribution?: Record<string, number>;
       consecutivePattern?: {
         avgConsecutivePairs: number;
         avgMaxRun: number;

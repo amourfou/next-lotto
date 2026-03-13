@@ -68,7 +68,11 @@ export async function POST() {
     await upsertLottoRounds(rows);
     const lastOfficialRound = rows.length ? Math.max(...rows.map((r) => r.round)) : 0;
     if (lastOfficialRound > 0) {
-      await setLottoMeta("last_official_round", String(lastOfficialRound));
+      try {
+        await setLottoMeta("last_official_round", String(lastOfficialRound));
+      } catch {
+        // lotto_meta 테이블이 없으면 무시 (당첨/추출 구분은 나중에 테이블 생성 후 시드 다시 하면 됨)
+      }
     }
 
     return NextResponse.json({

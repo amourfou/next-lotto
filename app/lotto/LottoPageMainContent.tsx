@@ -19,14 +19,17 @@ type Scope = {
   groupAtMost: Record<number, boolean>;
   seedLoading: boolean;
   seedMessage: { type: "ok" | "error"; text: string } | null;
-  activeTab: "number" | "group" | "sum" | "consecutive";
+  activeTab: "number" | "group" | "group9_45" | "sum" | "consecutive";
   sumMin: number | null;
   sumMax: number | null;
   maxConsecutivePairs: number | null;
+  selectedGroup9_45Keys: Set<string>;
+  toggleGroup9_45Key: (key: string) => void;
+  runAnalysis: () => void;
   savedRounds: { data: { round: number; n1: number; n2: number; n3: number; n4: number; n5: number; n6: number; bonus: number }[]; total: number } | null;
   savedRoundsLoading: boolean;
   showDbScreen: boolean;
-  analysis: { totalRounds: number; hot: number[]; cold: number[]; sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> }; consecutivePattern?: { avgConsecutivePairs: number; avgMaxRun: number; pairDistribution: Record<number, number>; maxRunDistribution: Record<number, number> }; updatedAt: string } | null;
+  analysis: { totalRounds: number; hot: number[]; cold: number[]; sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> }; group9_45Distribution?: Record<string, number>; consecutivePattern?: { avgConsecutivePairs: number; avgMaxRun: number; pairDistribution: Record<number, number>; maxRunDistribution: Record<number, number> }; updatedAt: string } | null;
   analysisLoading: boolean;
   saveDrawnLoading: boolean;
   saveDrawnMessage: { type: "ok" | "error"; text: string } | null;
@@ -38,7 +41,7 @@ type Scope = {
   handleGroupCountChange: (groupKey: number, value: number) => void;
   handleToggleGroupEnabled: (groupKey: number) => void;
   handleSetGroupAtMost: (groupKey: number, atMost: boolean) => void;
-  TABS: { id: "number" | "group" | "sum" | "consecutive"; label: string }[];
+  TABS: { id: "number" | "group" | "group9_45" | "sum" | "consecutive"; label: string }[];
   mustInclude: number[];
   mustExclude: number[];
   atLeastOne: number[];
@@ -55,13 +58,22 @@ type Scope = {
   setSumMin: (v: number | null) => void;
   setSumMax: (v: number | null) => void;
   setMaxConsecutivePairs: (v: number | null) => void;
-  setActiveTab: (v: "number" | "group" | "sum" | "consecutive") => void;
+  setActiveTab: (v: "number" | "group" | "group9_45" | "sum" | "consecutive") => void;
   fetchExclusionData: () => void;
   MIN_GAMES: number;
   MAX_GAMES: number;
   SUM_RANGE: { min: number; max: number };
   PICK_COUNT: number;
   AnalysisResultView: React.ComponentType<{ analysis: NonNullable<Scope["analysis"]> }>;
+  SumHistogramChart: React.ComponentType<{
+    histogram: Record<number, number>;
+    avg: number;
+    sumMin?: number | null;
+    sumMax?: number | null;
+    setSumMin?: (v: number | null) => void;
+    setSumMax?: (v: number | null) => void;
+    showFilter?: boolean;
+  }>;
 };
 
 export function LottoPageMainContent({ scope }: { scope: Record<string, unknown> }) {
@@ -407,41 +419,111 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                   />
                 </div>
               )}
+              {s.activeTab === "group9_45" && (
+                <div className="space-y-4 max-w-2xl mx-auto">
+                  <h2 className="text-slate-400 font-semibold text-sm text-center mb-3">
+                    9그룹(1~9) · 45그룹(37~45) 조합 (당첨 기준 확률, 체크한 조합만 추출)
+                  </h2>
+                  {s.analysis?.group9_45Distribution && s.analysis.totalRounds > 0 ? (
+                    <div className="overflow-x-auto">
+                      <p className="text-slate-500 text-xs text-center mb-1">9·45 그룹 0~3개만 표시. 진할수록 확률 높음.</p>
+                      {(() => {
+                        const dist = s.analysis!.group9_45Distribution!;
+                        const total = s.analysis!.totalRounds;
+                        let maxCount = 0;
+                        for (let n9 = 0; n9 <= 3; n9++) {
+                          for (let n45 = 0; n45 <= 3; n45++) {
+                            if (n9 + n45 <= 6) {
+                              const c = dist[`${n9},${n45}`] ?? 0;
+                              if (c > maxCount) maxCount = c;
+                            }
+                          }
+                        }
+                        return (
+                          <table className="w-full text-sm border-collapse mx-auto max-w-md">
+                            <thead>
+                              <tr className="text-slate-400">
+                                <th className="p-1 border border-slate-600">9\45</th>
+                                {[0, 1, 2, 3].map((n45) => (
+                                  <th key={n45} className="p-1 border border-slate-600">45:{n45}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {[0, 1, 2, 3].map((n9) => (
+                                <tr key={n9}>
+                                  <td className="p-1 border border-slate-600 text-slate-400 font-medium">9:{n9}</td>
+                                  {[0, 1, 2, 3].map((n45) => {
+                                    if (n9 + n45 > 6) return <td key={n45} className="p-1 border border-slate-600 bg-slate-800/50" />;
+                                    const key = `${n9},${n45}`;
+                                    const count = dist[key] ?? 0;
+                                    const pct = ((count / total) * 100).toFixed(1);
+                                    const intensity = maxCount > 0 ? count / maxCount : 0;
+                                    const opacity = 0.25 + 0.7 * intensity;
+                                    const checked = s.selectedGroup9_45Keys.has(key);
+                                    return (
+                                      <td
+                                        key={n45}
+                                        className="p-1 border border-slate-600 align-top"
+                                        style={{ backgroundColor: `rgba(245, 158, 11, ${opacity})` }}
+                                        title={`${count}회 (${pct}%)`}
+                                      >
+                                        <label className="flex flex-col items-center gap-0.5 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            onChange={() => s.toggleGroup9_45Key(key)}
+                                            className="rounded border-slate-500"
+                                          />
+                                          <span className="text-slate-900 font-medium">{count}</span>
+                                          <span className="text-slate-800 font-semibold text-xs">{pct}%</span>
+                                        </label>
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <div className="text-center space-y-3">
+                      <p className="text-slate-500 text-sm">
+                        저장된 분석에 9·45 조합이 없거나 당첨 데이터가 없습니다. 아래 버튼으로 분석을 실행하면 당첨 기준 확률이 표시되고 DB에 저장됩니다.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={s.runAnalysis}
+                        disabled={s.analysisLoading}
+                        className="px-4 py-2 rounded-xl text-sm font-medium bg-amber-500/90 text-slate-900 hover:bg-amber-400 disabled:opacity-50"
+                      >
+                        {s.analysisLoading ? "분석 중.." : "분석 실행 (9·45 포함, DB 저장)"}
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-slate-500 text-xs text-center">체크한 조합만 허용됩니다. 하나도 체크하지 않으면 제한 없음.</p>
+                </div>
+              )}
               {s.activeTab === "sum" && (
-                <div className="space-y-4 max-w-md mx-auto">
+                <div className="space-y-4 max-w-2xl mx-auto">
                   <h2 className="text-slate-400 font-semibold text-sm text-center mb-3">
                     합계 제한 (6개 번호 합, 비워두면 제한 없음)
                   </h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-slate-400 text-xs font-medium mb-1">합계 최소 (21~255)</label>
-                      <input
-                        type="number"
-                        value={s.sumMin ?? ""}
-                        onChange={(e) => {
-                          if (e.target.value === "") { s.setSumMin(null); return; }
-                          const v = parseInt(e.target.value, 10);
-                          s.setSumMin(Number.isNaN(v) ? null : v);
-                        }}
-                        placeholder="제한 없음"
-                        className="w-full rounded-lg bg-slate-700 text-white px-3 py-2 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 text-xs font-medium mb-1">합계 최대 (21~255)</label>
-                      <input
-                        type="number"
-                        value={s.sumMax ?? ""}
-                        onChange={(e) => {
-                          if (e.target.value === "") { s.setSumMax(null); return; }
-                          const v = parseInt(e.target.value, 10);
-                          s.setSumMax(Number.isNaN(v) ? null : v);
-                        }}
-                        placeholder="제한 없음"
-                        className="w-full rounded-lg bg-slate-700 text-white px-3 py-2 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                    </div>
-                  </div>
+                  {s.analysis?.sumPattern ? (
+                    <s.SumHistogramChart
+                      histogram={s.analysis.sumPattern.histogram}
+                      avg={s.analysis.sumPattern.avg}
+                      sumMin={s.sumMin}
+                      sumMax={s.sumMax}
+                      setSumMin={s.setSumMin}
+                      setSumMax={s.setSumMax}
+                      showFilter={true}
+                    />
+                  ) : (
+                    <p className="text-slate-500 text-sm text-center py-4">당첨번호 DB에서 분석을 실행하면 합계 그래프와 최소·최대 설정을 사용할 수 있습니다.</p>
+                  )}
                   <p className="text-slate-500 text-xs text-center">번호를 뽑은 뒤 설정은 계정 DB에 저장됩니다.</p>
                 </div>
               )}
