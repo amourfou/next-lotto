@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getLastOfficialRound,
+  getMaxLottoRound,
   deleteLottoDrawnByRound,
   insertLottoDrawnBatch,
 } from "@/lib/lottoSupabaseUtils";
@@ -34,7 +35,10 @@ export async function POST(request: NextRequest) {
     }
 
     const lastOfficial = await getLastOfficialRound();
-    const nextRound = lastOfficial + 1;
+    const nextRound = Math.max(
+      1,
+      lastOfficial > 0 ? lastOfficial + 1 : (await getMaxLottoRound()) + 1
+    );
 
     await deleteLottoDrawnByRound(nextRound);
     await insertLottoDrawnBatch(nextRound, normalized);
