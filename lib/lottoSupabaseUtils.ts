@@ -164,3 +164,79 @@ export async function insertLottoDrawSettings(row: {
   if (error) throw error;
   return data?.id as number;
 }
+
+// --- lotto_meta (당첨/과거추출 구분) ---
+
+export async function getLottoMeta(key: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("lotto_meta")
+    .select("value")
+    .eq("key", key)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.value ?? null;
+}
+
+export async function setLottoMeta(key: string, value: string): Promise<void> {
+  const { error } = await supabase.from("lotto_meta").upsert({ key, value }, { onConflict: "key" });
+  if (error) throw error;
+}
+
+export async function getLastOfficialRound(): Promise<number> {
+  const v = await getLottoMeta("last_official_round");
+  if (v == null || v === "") return 0;
+  const n = parseInt(v, 10);
+  return Number.isNaN(n) ? 0 : n;
+}
+
+/** 당첨 내역·추출 내역의 6개 번호 세트 목록 → 뽑은 세트가 이 목록에 있으면 재추출 */
+export async function getExclusionSets(): Promise<{
+  winningSets: number[][];
+  drawnSets: number[][];
+}> {
+  const lastOfficial = await getLastOfficialRound();
+  const maxRound = await getMaxLottoRound();
+  const winningSets: number[][] = [];
+  const drawnSets: number[][] = [];
+
+  if (maxRound < 1) return { winningSets, drawnSets };
+
+  const officialCap = lastOfficial > 0 ? lastOfficial : maxRound;
+  let offset = 0;
+  while (true) {
+    const { data: winningRows, error: e1 } = await supabase
+      .from("lotto_rounds")
+      .select("n1, n2, n3, n4, n5, n6")
+      .lte("round", officialCap)
+      .order("round", { ascending: true })
+      .range(offset, offset + SUPABASE_DEFAULT_MAX_ROWS - 1);
+    if (e1) break;
+    const chunk = winningRows ?? [];
+    for (const r of chunk) {
+      winningSets.push([r.n1, r.n2, r.n3, r.n4, r.n5, r.n6].sort((a, b) => a - b));
+    }
+    if (chunk.length < SUPABASE_DEFAULT_MAX_ROWS) break;
+    offset += SUPABASE_DEFAULT_MAX_ROWS;
+  }
+
+  if (lastOfficial > 0) {
+    offset = 0;
+    while (true) {
+      const { data: drawnRows, error: e2 } = await supabase
+        .from("lotto_rounds")
+        .select("n1, n2, n3, n4, n5, n6")
+        .gt("round", lastOfficial)
+        .order("round", { ascending: true })
+        .range(offset, offset + SUPABASE_DEFAULT_MAX_ROWS - 1);
+      if (e2) break;
+      const chunk = drawnRows ?? [];
+      for (const r of chunk) {
+        drawnSets.push([r.n1, r.n2, r.n3, r.n4, r.n5, r.n6].sort((a, b) => a - b));
+      }
+      if (chunk.length < SUPABASE_DEFAULT_MAX_ROWS) break;
+      offset += SUPABASE_DEFAULT_MAX_ROWS;
+    }
+  }
+
+  return { winningSets, drawnSets };
+}

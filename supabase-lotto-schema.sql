@@ -35,7 +35,15 @@ CREATE TABLE IF NOT EXISTS lotto_draw_settings (
 );
 CREATE INDEX IF NOT EXISTS idx_lotto_draw_settings_id ON lotto_draw_settings(id DESC);
 
--- 4. 연금복권 회차 테이블 + 인덱스 (회차, 조, 6자리번호, 보너스 6자리)
+-- 4. 로또 메타 (당첨/과거추출 구분용)
+CREATE TABLE IF NOT EXISTS lotto_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+ALTER TABLE lotto_meta ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable all for lotto_meta" ON lotto_meta FOR ALL USING (true) WITH CHECK (true);
+
+-- 5. 연금복권 회차 테이블 + 인덱스 (회차, 조, 6자리번호, 보너스 6자리)
 CREATE TABLE IF NOT EXISTS pension_lottery_rounds (
   order_num INTEGER PRIMARY KEY,
   jo INTEGER NOT NULL,
@@ -55,13 +63,13 @@ CREATE TABLE IF NOT EXISTS pension_lottery_rounds (
 );
 CREATE INDEX IF NOT EXISTS idx_pension_lottery_rounds_order ON pension_lottery_rounds(order_num DESC);
 
--- 5. RLS 설정 (선택: 공개 읽기/쓰기 허용)
+-- 6. RLS 설정 (선택: 공개 읽기/쓰기 허용)
 ALTER TABLE lotto_rounds ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lotto_analysis ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lotto_draw_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pension_lottery_rounds ENABLE ROW LEVEL SECURITY;
 
--- 6. 정책: 모든 작업 허용 (anon key로 접근 가능, HaanRiver 방식)
+-- 7. 정책: 모든 작업 허용 (anon key로 접근 가능, HaanRiver 방식)
 CREATE POLICY "Enable all for lotto_rounds" ON lotto_rounds FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Enable all for lotto_analysis" ON lotto_analysis FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Enable all for lotto_draw_settings" ON lotto_draw_settings FOR ALL USING (true) WITH CHECK (true);

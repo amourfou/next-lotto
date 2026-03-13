@@ -56,6 +56,7 @@ type Scope = {
   setSumMax: (v: number | null) => void;
   setMaxConsecutivePairs: (v: number | null) => void;
   setActiveTab: (v: "number" | "group" | "sum" | "consecutive") => void;
+  fetchExclusionData: () => void;
   MIN_GAMES: number;
   MAX_GAMES: number;
   SUM_RANGE: { min: number; max: number };
@@ -151,6 +152,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
               const listJson = await listRes.json();
               if (!listJson.error && listJson.data)
                 s.setSavedRounds({ data: listJson.data, total: listJson.total ?? 0 });
+              s.fetchExclusionData();
             } catch {
               s.setSaveDrawnMessage({ type: "error", text: "통신 실패" });
             } finally {
@@ -415,13 +417,11 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                       <label className="block text-slate-400 text-xs font-medium mb-1">합계 최소 (21~255)</label>
                       <input
                         type="number"
-                        min={s.SUM_RANGE.min}
-                        max={s.SUM_RANGE.max}
                         value={s.sumMin ?? ""}
                         onChange={(e) => {
                           if (e.target.value === "") { s.setSumMin(null); return; }
                           const v = parseInt(e.target.value, 10);
-                          s.setSumMin(Number.isNaN(v) ? null : Math.min(s.SUM_RANGE.max, Math.max(s.SUM_RANGE.min, v)));
+                          s.setSumMin(Number.isNaN(v) ? null : v);
                         }}
                         placeholder="제한 없음"
                         className="w-full rounded-lg bg-slate-700 text-white px-3 py-2 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -431,13 +431,11 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                       <label className="block text-slate-400 text-xs font-medium mb-1">합계 최대 (21~255)</label>
                       <input
                         type="number"
-                        min={s.SUM_RANGE.min}
-                        max={s.SUM_RANGE.max}
                         value={s.sumMax ?? ""}
                         onChange={(e) => {
                           if (e.target.value === "") { s.setSumMax(null); return; }
                           const v = parseInt(e.target.value, 10);
-                          s.setSumMax(Number.isNaN(v) ? null : Math.min(s.SUM_RANGE.max, Math.max(s.SUM_RANGE.min, v)));
+                          s.setSumMax(Number.isNaN(v) ? null : v);
                         }}
                         placeholder="제한 없음"
                         className="w-full rounded-lg bg-slate-700 text-white px-3 py-2 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"

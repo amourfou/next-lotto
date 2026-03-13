@@ -22,6 +22,47 @@ const MAX = 45;
 const PICK_COUNT = 6;
 const SUM_RANGE = { min: 21, max: 255 }; // 1+2+3+4+5+6 ~ 40+41+42+43+44+45
 
+/** 당첨 합계 히스토그램에서 확률이 낮은 양끝(기본 하위/상위 10%)을 제외한 기본 합계 범위 */
+function getDefaultSumRangeFromHistogram(
+  histogram: Record<number, number>,
+  tailFraction = 0.1
+): { defaultSumMin: number; defaultSumMax: number } {
+  const sums = Object.keys(histogram)
+    .map(Number)
+    .filter((s) => s >= SUM_RANGE.min && s <= SUM_RANGE.max)
+    .sort((a, b) => a - b);
+  if (sums.length === 0) return { defaultSumMin: SUM_RANGE.min, defaultSumMax: SUM_RANGE.max };
+  let total = 0;
+  for (const s of sums) total += histogram[s] ?? 0;
+  if (total === 0) return { defaultSumMin: SUM_RANGE.min, defaultSumMax: SUM_RANGE.max };
+  const lowThreshold = tailFraction * total;
+  let cum = 0;
+  let defaultSumMin = sums[0];
+  for (const s of sums) {
+    cum += histogram[s] ?? 0;
+    if (cum >= lowThreshold) {
+      defaultSumMin = s;
+      break;
+    }
+  }
+  cum = 0;
+  let defaultSumMax = sums[sums.length - 1];
+  for (let i = sums.length - 1; i >= 0; i--) {
+    const s = sums[i];
+    cum += histogram[s] ?? 0;
+    if (cum >= tailFraction * total) {
+      defaultSumMax = s;
+      break;
+    }
+  }
+  return { defaultSumMin, defaultSumMax };
+}
+
+/** 6개 번호 세트를 정렬한 키 (당첨/추출 내역과 중복 검사용) */
+function toSetKey(nums: number[]): string {
+  return [...nums].sort((a, b) => a - b).join(",");
+}
+
 function getConsecutivePairs(nums: number[]): number {
   const arr = [...nums].sort((a, b) => a - b);
   let pairs = 0;
@@ -39,8 +80,10 @@ function meetsPatternConstraints(
 ): boolean {
   if (nums.length !== PICK_COUNT) return false;
   const sum = nums.reduce((a, b) => a + b, 0);
-  if (sumMin != null && sum < sumMin) return false;
-  if (sumMax != null && sum > sumMax) return false;
+  const effSumMin = sumMin != null ? Math.max(SUM_RANGE.min, Math.min(SUM_RANGE.max, sumMin)) : null;
+  const effSumMax = sumMax != null ? Math.max(SUM_RANGE.min, Math.min(SUM_RANGE.max, sumMax)) : null;
+  if (effSumMin != null && sum < effSumMin) return false;
+  if (effSumMax != null && sum > effSumMax) return false;
   if (maxConsecutivePairs != null && getConsecutivePairs(nums) > maxConsecutivePairs) return false;
   return true;
 }
@@ -233,9 +276,10 @@ function getInitialFilterStates(): Record<number, NumberFilterState> {
 function drawLottoNumbers(
   mustInclude: number[],
   mustExclude: number[],
-  atLeastOne: number[]
+  atLeastOne: number[],
+  extraExclude: number[] = []
 ): number[] {
-  const excludeSet = new Set(mustExclude);
+  const excludeSet = new Set([...mustExclude, ...extraExclude]);
   const pool = Array.from({ length: MAX - MIN + 1 }, (_, i) => i + MIN).filter(
     (n) => !excludeSet.has(n)
   );
@@ -271,9 +315,10 @@ function drawByGroupCounts(
   groupEnabled: GroupEnabled,
   groupAtMost: GroupAtMost,
   mustInclude: number[],
-  mustExclude: number[]
+  mustExclude: number[],
+  extraExclude: number[] = []
 ): number[] {
-  const excludeSet = new Set(mustExclude);
+  const excludeSet = new Set([...mustExclude, ...extraExclude]);
   // 꼭 넣을 번호·조건 결과로 채움 (그룹 모드에서)
   const result = [...mustInclude];
   const resultSet = new Set(result);
@@ -397,6 +442,17 @@ export function LottoPageBody() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [saveDrawnLoading, setSaveDrawnLoading] = useState(false);
   const [saveDrawnMessage, setSaveDrawnMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  /** 페이지 로드 시 DB에서 조회해 둔 당첨/추출 6개 번호 세트 키 (뽑은 세트가 있으면 재추출) */
+  const [exclusionWinningSetKeys, setExclusionWinningSetKeys] = useState<Set<string>>(new Set());
+  const [exclusionDrawnSetKeys, setExclusionDrawnSetKeys] = useState<Set<string>>(new Set());
+
+  // 분석 결과가 있고 합계 필터가 비어 있으면, 당첨 분포 기준으로 양끝 10% 제외한 기본 범위 적용
+  useEffect(() => {
+    if (!analysis?.sumPattern?.histogram || sumMin != null || sumMax != null) return;
+    const { defaultSumMin, defaultSumMax } = getDefaultSumRangeFromHistogram(analysis.sumPattern.histogram);
+    setSumMin(defaultSumMin);
+    setSumMax(defaultSumMax);
+  }, [analysis, sumMin, sumMax]);
 
   const fetchDbScreenData = useCallback(() => {
     fetch("/api/lotto?limit=20")
@@ -440,6 +496,46 @@ export function LottoPageBody() {
       cancelled = true;
     };
   }, []);
+
+  // DB에 저장된 분석 결과 불러오기 → 합계 필터 기본값 등에 사용
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/lotto/analysis")
+      .then((res) => res.json())
+      .then((json) => {
+        if (cancelled) return;
+        if (json.analysis) setAnalysis(json.analysis);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 페이지 로드 시 당첨 내역·추출 내역의 6개 번호 세트 조회 → 메모리 보관 (뽑은 세트가 있으면 재추출)
+  const fetchExclusionData = useCallback(() => {
+    fetch("/api/lotto/exclusion-data")
+      .then((res) => res.json())
+      .then((json) => {
+        if (!json.error) {
+          const win = Array.isArray(json.winningSets)
+            ? new Set(json.winningSets.map((s: number[]) => [...s].sort((a, b) => a - b).join(",")))
+            : new Set<string>();
+          const drawn = Array.isArray(json.drawnSets)
+            ? new Set(json.drawnSets.map((s: number[]) => [...s].sort((a, b) => a - b).join(",")))
+            : new Set<string>();
+          setExclusionWinningSetKeys(win);
+          setExclusionDrawnSetKeys(drawn);
+        }
+      })
+      .catch(() => {
+        setExclusionWinningSetKeys(new Set());
+        setExclusionDrawnSetKeys(new Set());
+      });
+  }, []);
+  useEffect(() => {
+    fetchExclusionData();
+  }, [fetchExclusionData]);
 
   // 저장된 설정(이전 데이터) 불러오기
   useEffect(() => {
@@ -674,21 +770,22 @@ export function LottoPageBody() {
     setSaveDrawnMessage(null);
     setTimeout(() => {
       const results: number[][] = [];
+      const forbiddenSetKeys = new Set<string>([...exclusionWinningSetKeys, ...exclusionDrawnSetKeys]);
+      const maxSetRetry = 500;
       for (let i = 0; i < n; i++) {
+        const alreadyDrawnKeysInBatch = new Set(results.map((r) => toSetKey(r)));
         let result: number[] = [];
-        for (let retry = 0; retry < maxRetry; retry++) {
+        for (let retry = 0; retry < maxRetry * maxSetRetry; retry++) {
           result = useGroupCountMode
-            ? drawByGroupCounts(
-                groupCounts,
-                groupEnabled,
-                groupAtMost,
-                mustInclude,
-                mustExclude
-              )
-            : drawLottoNumbers(mustInclude, mustExclude, atLeastOne);
-          if (result.length === PICK_COUNT && meetsPatternConstraints(result, sumMin, sumMax, maxConsecutivePairs)) break;
+            ? drawByGroupCounts(groupCounts, groupEnabled, groupAtMost, mustInclude, mustExclude, [])
+            : drawLottoNumbers(mustInclude, mustExclude, atLeastOne, []);
+          if (result.length !== PICK_COUNT) continue;
+          if (!meetsPatternConstraints(result, sumMin, sumMax, maxConsecutivePairs)) continue;
+          const key = toSetKey(result);
+          if (forbiddenSetKeys.has(key) || alreadyDrawnKeysInBatch.has(key)) continue;
+          break;
         }
-        results.push(result);
+        if (result.length === PICK_COUNT) results.push(result);
       }
       setGames(results);
       setIsDrawing(false);
@@ -719,6 +816,8 @@ export function LottoPageBody() {
     sumMin,
     sumMax,
     maxConsecutivePairs,
+    exclusionWinningSetKeys,
+    exclusionDrawnSetKeys,
   ]);
 
   const scope = {
@@ -730,6 +829,7 @@ export function LottoPageBody() {
     TABS, mustInclude, mustExclude, atLeastOne, useGroupCountMode, poolSize,
     setSaveDrawnMessage, setSaveDrawnLoading, setSavedRounds, setAnalysis, setAnalysisLoading, setSeedMessage, setSeedLoading, setShowDbScreen,
     setSumMin, setSumMax, setMaxConsecutivePairs,
+    fetchExclusionData,
     MIN_GAMES, MAX_GAMES, SUM_RANGE, PICK_COUNT, AnalysisResultView,
   };
   return React.createElement(LottoPageMainContent, { scope });

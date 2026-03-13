@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { upsertLottoRounds } from "@/lib/lottoSupabaseUtils";
+import { upsertLottoRounds, setLottoMeta } from "@/lib/lottoSupabaseUtils";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +66,10 @@ export async function POST() {
     }
 
     await upsertLottoRounds(rows);
+    const lastOfficialRound = rows.length ? Math.max(...rows.map((r) => r.round)) : 0;
+    if (lastOfficialRound > 0) {
+      await setLottoMeta("last_official_round", String(lastOfficialRound));
+    }
 
     return NextResponse.json({
       success: true,
