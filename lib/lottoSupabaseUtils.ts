@@ -73,6 +73,29 @@ export async function getAllLottoRoundsForAnalysis(): Promise<
   return all;
 }
 
+/** 당첨 회차만 조회 (round <= last_official_round). 분석용 */
+export async function getWinningRoundsForAnalysis(): Promise<
+  { n1: number; n2: number; n3: number; n4: number; n5: number; n6: number; bonus: number }[]
+> {
+  const lastOfficial = await getLastOfficialRound();
+  const all: { n1: number; n2: number; n3: number; n4: number; n5: number; n6: number; bonus: number }[] = [];
+  let offset = 0;
+  while (true) {
+    let q = supabase
+      .from("lotto_rounds")
+      .select("n1, n2, n3, n4, n5, n6, bonus")
+      .order("round", { ascending: true });
+    if (lastOfficial > 0) q = q.lte("round", lastOfficial);
+    const { data, error } = await q.range(offset, offset + SUPABASE_DEFAULT_MAX_ROWS - 1);
+    if (error) throw error;
+    const chunk = data ?? [];
+    all.push(...chunk);
+    if (chunk.length < SUPABASE_DEFAULT_MAX_ROWS) break;
+    offset += SUPABASE_DEFAULT_MAX_ROWS;
+  }
+  return all;
+}
+
 export async function insertLottoRound(row: {
   round: number;
   n1: number;

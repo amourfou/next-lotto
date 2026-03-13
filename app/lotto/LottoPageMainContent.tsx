@@ -60,6 +60,7 @@ type Scope = {
   setMaxConsecutivePairs: (v: number | null) => void;
   setActiveTab: (v: "number" | "group" | "group9_45" | "sum" | "consecutive") => void;
   fetchExclusionData: () => void;
+  nextRound: number;
   MIN_GAMES: number;
   MAX_GAMES: number;
   SUM_RANGE: { min: number; max: number };
@@ -126,9 +127,8 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
           type="button"
           disabled={s.games.length === 0}
           onClick={() => {
-            const nextRound = (s.savedRounds?.data?.[0]?.round ?? 0) + 1;
             const lines = [
-              `for ${nextRound}`,
+              `for ${s.nextRound}`,
               "================================ ",
               ...s.games.map(
                 (nums, i) =>
@@ -323,6 +323,9 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
             )}
             {s.games.length > 0 && !s.isDrawing && (
               <div className="flex flex-col gap-2">
+                <p className="text-slate-400 text-sm text-center font-medium mb-0.5">
+                  {s.nextRound}회차용 추출 번호
+                </p>
                 <p className="text-slate-500 text-xs text-center mb-1">
                   그룹별: 1~9 노랑 · 10~18 초록 · 19~27 파랑 · 28~36 보라 · 37~45 빨강
                 </p>

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  getAllLottoRoundsForAnalysis,
+  getWinningRoundsForAnalysis,
   upsertLottoAnalysis,
 } from "@/lib/lottoSupabaseUtils";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST() {
   try {
-    const rows = await getAllLottoRoundsForAnalysis();
+    const rows = await getWinningRoundsForAnalysis();
 
     if (rows.length === 0) {
       return NextResponse.json(

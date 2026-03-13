@@ -522,6 +522,8 @@ export function LottoPageBody() {
   /** 페이지 로드 시 DB에서 조회해 둔 당첨/추출 6개 번호 세트 키 (뽑은 세트가 있으면 재추출) */
   const [exclusionWinningSetKeys, setExclusionWinningSetKeys] = useState<Set<string>>(new Set());
   const [exclusionDrawnSetKeys, setExclusionDrawnSetKeys] = useState<Set<string>>(new Set());
+  /** 추출 번호의 대상 회차 (최신 당첨 회차 + 1). 표시·클립보드용 */
+  const [nextRound, setNextRound] = useState<number>(1);
 
   // 분석 결과가 있고 합계 필터가 비어 있으면, 당첨 분포 기준으로 양끝 10% 제외한 기본 범위 적용
   useEffect(() => {
@@ -531,6 +533,15 @@ export function LottoPageBody() {
     setSumMax(defaultSumMax);
   }, [analysis, sumMin, sumMax]);
 
+  const fetchNextRound = useCallback(() => {
+    fetch("/api/lotto/next-round")
+      .then((res) => res.json())
+      .then((json) => {
+        if (!json.error && typeof json.nextRound === "number") setNextRound(json.nextRound);
+      })
+      .catch(() => {});
+  }, []);
+
   const fetchDbScreenData = useCallback(() => {
     fetch("/api/lotto?limit=20")
       .then((res) => res.json())
@@ -538,6 +549,7 @@ export function LottoPageBody() {
         if (!json.error) setSavedRounds({ data: json.data ?? [], total: json.total ?? 0 });
       })
       .catch(() => setSavedRounds(null));
+    fetchNextRound();
     // 항상 전체 회차 기준으로 분석 실행 (저장된 1000회차 분석이 아닌)
     setAnalysisLoading(true);
     fetch("/api/analyze-lotto", { method: "POST" })
@@ -548,7 +560,11 @@ export function LottoPageBody() {
       })
       .catch(() => setAnalysis(null))
       .finally(() => setAnalysisLoading(false));
-  }, []);
+  }, [fetchNextRound]);
+
+  useEffect(() => {
+    fetchNextRound();
+  }, [fetchNextRound]);
 
   useEffect(() => {
     let cancelled = false;
@@ -717,7 +733,7 @@ export function LottoPageBody() {
       })
       .catch(() => setAnalysis(null))
       .finally(() => setAnalysisLoading(false));
-  }, []);
+  }, [fetchNextRound]);
 
   const { mustInclude, mustExclude, atLeastOne } = useMemo(() => {
     const include: number[] = [];
@@ -950,7 +966,7 @@ export function LottoPageBody() {
     games, setGames, gameCount, setGameCount, isDrawing, filterStates, currentCategory,
     groupCounts, groupEnabled, groupAtMost, seedLoading, seedMessage, activeTab, setActiveTab, sumMin, sumMax,
     maxConsecutivePairs, selectedGroup9_45Keys, toggleGroup9_45Key, runAnalysis, savedRounds, savedRoundsLoading, showDbScreen, analysis, analysisLoading,
-    saveDrawnLoading, saveDrawnMessage, fetchDbScreenData, handleDraw, canDraw,
+    saveDrawnLoading, saveDrawnMessage, fetchDbScreenData, handleDraw, canDraw, nextRound,
     handleCategoryChange, handleNumberClick, handleGroupCountChange, handleToggleGroupEnabled, handleSetGroupAtMost,
     TABS, mustInclude, mustExclude, atLeastOne, useGroupCountMode, poolSize,
     setSaveDrawnMessage, setSaveDrawnLoading, setSavedRounds, setAnalysis, setAnalysisLoading, setSeedMessage, setSeedLoading, setShowDbScreen,
