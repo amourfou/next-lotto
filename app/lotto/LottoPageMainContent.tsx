@@ -132,7 +132,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
               "================================ ",
               ...s.games.map(
                 (nums, i) =>
-                  ` ${String(i + 1).padStart(2)} : [ ${nums.map((n) => String(n).padStart(2)).join(", ")} ], `
+                  `${String(i + 1).padStart(2)} : [ ${nums.map((n) => String(n).padStart(2)).join(", ")} ], `
               ),
               "================================",
             ];
