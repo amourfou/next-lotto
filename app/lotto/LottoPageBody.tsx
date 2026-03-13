@@ -610,10 +610,10 @@ export function LottoPageBody() {
       .then((res) => res.json())
       .then((json) => {
         if (!json.error) {
-          const win = Array.isArray(json.winningSets)
+          const win: Set<string> = Array.isArray(json.winningSets)
             ? new Set(json.winningSets.map((s: number[]) => [...s].sort((a, b) => a - b).join(",")))
             : new Set<string>();
-          const drawn = Array.isArray(json.drawnSets)
+          const drawn: Set<string> = Array.isArray(json.drawnSets)
             ? new Set(json.drawnSets.map((s: number[]) => [...s].sort((a, b) => a - b).join(",")))
             : new Set<string>();
           setExclusionWinningSetKeys(win);
@@ -621,8 +621,8 @@ export function LottoPageBody() {
         }
       })
       .catch(() => {
-        setExclusionWinningSetKeys(new Set());
-        setExclusionDrawnSetKeys(new Set());
+        setExclusionWinningSetKeys(new Set<string>());
+        setExclusionDrawnSetKeys(new Set<string>());
       });
   }, []);
   useEffect(() => {
@@ -887,7 +887,10 @@ export function LottoPageBody() {
     setSaveDrawnMessage(null);
     setTimeout(() => {
       const results: number[][] = [];
-      const forbiddenSetKeys = new Set<string>([...exclusionWinningSetKeys, ...exclusionDrawnSetKeys]);
+      const forbiddenSetKeys = new Set<string>([
+        ...Array.from(exclusionWinningSetKeys),
+        ...Array.from(exclusionDrawnSetKeys),
+      ]);
       const maxSetRetry = 500;
       for (let i = 0; i < n; i++) {
         const alreadyDrawnKeysInBatch = new Set(results.map((r) => toSetKey(r)));
