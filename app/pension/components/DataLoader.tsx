@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Database } from 'lucide-react';
-import { loadLotteryData, getRecentData, extractNumbers, LotteryData } from '../lib/dataParser';
+import { loadLotteryData, getRecentData, extractNumbers, getLotteryDataSummary, LotteryData } from '../lib/dataParser';
 
 interface DataLoaderProps {
   onDataLoaded: (numbers: number[], lotteryData: LotteryData[]) => void;
@@ -65,7 +65,21 @@ export default function DataLoader({ onDataLoaded, onStatisticsLoaded, lotteryDa
         </div>
         {lotteryData.length > 0 && (
           <div className="space-y-2">
-            <p className="text-sm text-gray-600">현재 {lotteryData.length}회차 데이터가 로드되었습니다.</p>
+            <p className="text-sm text-gray-600">
+              {(() => {
+                const { maxOrder, rowCount, distinctOrders } = getLotteryDataSummary(lotteryData);
+                return (
+                  <>
+                    최신 <span className="font-semibold text-gray-800">{maxOrder}회</span>까지 · 데이터{' '}
+                    <span className="font-semibold text-gray-800">{rowCount}건</span>
+                    {distinctOrders !== rowCount ? (
+                      <span className="text-gray-500"> (회차 {distinctOrders}개)</span>
+                    ) : null}{' '}
+                    로드됨
+                  </>
+                );
+              })()}
+            </p>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => loadRecentData(10)} className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm">최근 10회차</button>
               <button onClick={() => loadRecentData(20)} className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm">최근 20회차</button>

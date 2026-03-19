@@ -19,8 +19,6 @@ export default function PositionTransitionAnalysis({ lotteryData }: PositionTran
   }
 
   const analysis = analyzePositionTransition(lotteryData);
-  const maxOrder = Math.max(...lotteryData.map((d) => Number(d.order)));
-  const roundCount = lotteryData.length;
 
   const togglePosition = (position: number) => {
     const newExpanded = new Set(expandedPositions);
@@ -53,18 +51,9 @@ export default function PositionTransitionAnalysis({ lotteryData }: PositionTran
         </div>
       </div>
 
-      <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200 space-y-1">
-        <div className="text-sm text-gray-800">
-          <strong>데이터 범위:</strong> 총 <strong>{roundCount}</strong>건 · 최고 회차{" "}
-          <strong>{maxOrder}</strong>회
-        </div>
+      <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
         <div className="text-sm text-gray-700">
-          <strong>총 전이 개수:</strong> {analysis.totalTransitions}개
-          <span className="text-gray-600">
-            {" "}
-            (연속된 두 회차 쌍의 수 = <strong>{roundCount} − 1</strong>. 307회차까지 있으면 여기는{" "}
-            <strong>306</strong>으로 나오는 것이 정상입니다.)
-          </span>
+          <strong>총 전이 개수:</strong> {analysis.totalTransitions}개 (회차 수 - 1)
         </div>
       </div>
 

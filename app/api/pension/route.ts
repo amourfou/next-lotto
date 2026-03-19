@@ -8,13 +8,13 @@ import {
 } from "@/lib/pensionSupabaseUtils";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 const NO_CACHE_HEADERS = {
-  "Cache-Control": "private, no-store, no-cache, must-revalidate, max-age=0",
+  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
   Pragma: "no-cache",
-  Expires: "0",
-  Vary: "*",
+  /** Vercel Edge가 API 응답을 캐시하지 않도록 */
+  "CDN-Cache-Control": "no-store",
+  "Vercel-CDN-Cache-Control": "no-store",
 } as const;
 
 /** DB가 비어 있으면 public/PensionLottery.json을 읽어 DB에 저장. 시드한 경우 방금 넣은 데이터 반환 */

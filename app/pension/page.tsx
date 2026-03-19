@@ -94,16 +94,7 @@ export default function PensionPage() {
         </div>
 
         {!isLoading && lotteryData.length > 0 && (
-          <>
-            <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/90 px-4 py-2 text-center text-sm text-indigo-900">
-              <strong>로드된 데이터</strong>: 총 <strong>{lotteryData.length}</strong>건 · 최고 회차{" "}
-              <strong>{Math.max(...lotteryData.map((d) => Number(d.order)))}</strong>회
-              <span className="text-indigo-700/80 ml-2 hidden sm:inline">
-                (전이 분석의 &quot;306&quot; 등은 회차 번호가 아니라 <em>인접 회차 쌍 개수</em>일 수 있습니다.)
-              </span>
-            </div>
-            <PredictionGenerator lotteryData={lotteryData} analyzedNumbers={numbers} />
-          </>
+          <PredictionGenerator lotteryData={lotteryData} analyzedNumbers={numbers} />
         )}
 
         {isLoading ? (

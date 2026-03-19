@@ -1,6 +1,6 @@
 'use client';
 
-import { LotteryData, analyzePositionFrequency, analyzeDigitSum } from '../lib/dataParser';
+import { LotteryData, analyzePositionFrequency, analyzeDigitSum, getLotteryDataSummary } from '../lib/dataParser';
 import { Calendar, Hash, TrendingUp, TrendingDown, BarChart3 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
@@ -13,11 +13,13 @@ export default function LotteryDataDisplay({ lotteryData }: LotteryDataDisplayPr
     return null;
   }
 
+  const { maxOrder, rowCount } = getLotteryDataSummary(lotteryData);
+
   return (
     <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6">
       <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4 flex items-center gap-2">
         <Hash size={20} />
-        복권 데이터 ({lotteryData.length}회차)
+        복권 데이터 (최신 {maxOrder}회 · {rowCount}건)
       </h2>
       
       <div className="space-y-3 sm:space-y-4">

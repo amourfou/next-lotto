@@ -1,5 +1,8 @@
 import { supabase } from "./supabase";
 
+/** PostgREST/Supabase 한 번에 가져오는 최대 행 (설정이 1000 미만이어도 누락 없이 전부 조회) */
+const PENSION_PAGE_SIZE = 1000;
+
 /** DB 행 → 연금복권 원시 배열 [회차, 조, d1..d6, b1..b6] (14개) */
 export function rowToRawRow(row: {
   order_num: number;
@@ -25,18 +28,16 @@ export function rowToRawRow(row: {
   ];
 }
 
-const PENSION_PAGE_SIZE = 1000;
-
-/** 연금복권 전체 조회 (최신 회차 우선), PensionLottery.json과 동일한 number[][] 형태. PostgREST 행 제한 대비 페이지네이션 */
+/** 연금복권 전체 조회 (최신 회차 우선), PensionLottery.json과 동일한 number[][] 형태. 페이지 반복으로 행 제한 누락 방지 */
 export async function getAllPensionRoundsRaw(): Promise<number[][]> {
   const all: number[][] = [];
-  let from = 0;
+  let offset = 0;
   while (true) {
     const { data, error } = await supabase
       .from("pension_lottery_rounds")
       .select("order_num, jo, d1, d2, d3, d4, d5, d6, b1, b2, b3, b4, b5, b6")
       .order("order_num", { ascending: false })
-      .range(from, from + PENSION_PAGE_SIZE - 1);
+      .range(offset, offset + PENSION_PAGE_SIZE - 1);
 
     if (error) throw error;
     const chunk = data ?? [];
@@ -44,7 +45,7 @@ export async function getAllPensionRoundsRaw(): Promise<number[][]> {
       all.push(rowToRawRow(row));
     }
     if (chunk.length < PENSION_PAGE_SIZE) break;
-    from += PENSION_PAGE_SIZE;
+    offset += PENSION_PAGE_SIZE;
   }
   return all;
 }
