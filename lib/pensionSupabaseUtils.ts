@@ -25,15 +25,28 @@ export function rowToRawRow(row: {
   ];
 }
 
-/** 연금복권 전체 조회 (최신 회차 우선), PensionLottery.json과 동일한 number[][] 형태 */
-export async function getAllPensionRoundsRaw(): Promise<number[][]> {
-  const { data, error } = await supabase
-    .from("pension_lottery_rounds")
-    .select("order_num, jo, d1, d2, d3, d4, d5, d6, b1, b2, b3, b4, b5, b6")
-    .order("order_num", { ascending: false });
+const PENSION_PAGE_SIZE = 1000;
 
-  if (error) throw error;
-  return (data ?? []).map(rowToRawRow);
+/** 연금복권 전체 조회 (최신 회차 우선), PensionLottery.json과 동일한 number[][] 형태. PostgREST 행 제한 대비 페이지네이션 */
+export async function getAllPensionRoundsRaw(): Promise<number[][]> {
+  const all: number[][] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("pension_lottery_rounds")
+      .select("order_num, jo, d1, d2, d3, d4, d5, d6, b1, b2, b3, b4, b5, b6")
+      .order("order_num", { ascending: false })
+      .range(from, from + PENSION_PAGE_SIZE - 1);
+
+    if (error) throw error;
+    const chunk = data ?? [];
+    for (const row of chunk) {
+      all.push(rowToRawRow(row));
+    }
+    if (chunk.length < PENSION_PAGE_SIZE) break;
+    from += PENSION_PAGE_SIZE;
+  }
+  return all;
 }
 
 export async function getPensionRoundsCount(): Promise<number> {
@@ -42,6 +55,18 @@ export async function getPensionRoundsCount(): Promise<number> {
     .select("*", { count: "exact", head: true });
   if (error) throw error;
   return count ?? 0;
+}
+
+/** DB에 저장된 최대 회차(order_num). 비어 있으면 0 */
+export async function getMaxPensionOrderNum(): Promise<number> {
+  const { data, error } = await supabase
+    .from("pension_lottery_rounds")
+    .select("order_num")
+    .order("order_num", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.order_num ?? 0;
 }
 
 /** 해당 회차 존재 여부 */

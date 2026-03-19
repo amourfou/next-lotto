@@ -16,7 +16,7 @@ export interface LotteryData {
 export function parseLotteryData(rawData: number[][]): LotteryData[] {
   return rawData.map((row, index) => {
     // 0번째: 순서, 1번째: 조, 2~7번째: 번호, 8~13번째: 보너스번호
-    const order = row[0];
+    const order = Number(row[0]);
     const numbers = row.slice(2, 8); // 2,3,4,5,6,7번째 인덱스
     const bonusNumbers = row.length > 8 ? row.slice(8, 14) : undefined; // 8,9,10,11,12,13번째 인덱스
     
@@ -118,21 +118,32 @@ export function getDataByRange(lotteryData: LotteryData[], startOrder: number, e
  * @returns 파싱된 데이터, 숫자 배열, 통계 정보
  */
 export async function loadLotteryData(url: string = '/api/pension') {
-  const response = await fetch(url, { cache: 'no-store' });
+  const sep = url.includes("?") ? "&" : "?";
+  const response = await fetch(`${url}${sep}_=${Date.now()}`, {
+    cache: "no-store",
+    headers: { Pragma: "no-cache" },
+  });
 
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
-  
+
   const rawData = await response.json();
-  const parsedData = parseLotteryData(rawData);
+  if (!Array.isArray(rawData)) {
+    throw new Error("연금복권 API가 배열이 아닌 응답을 반환했습니다.");
+  }
+
+  const parsedData = parseLotteryData(rawData as number[][]);
+  // 최신 회차가 앞에 오도록 (API가 내림차순이어도 안전)
+  parsedData.sort((a, b) => Number(b.order) - Number(a.order));
+
   const numbers = extractNumbers(parsedData);
   const statistics = getDataStatistics(parsedData);
-  
+
   return {
     parsedData,
     numbers,
-    statistics
+    statistics,
   };
 }
 

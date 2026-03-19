@@ -2,15 +2,19 @@ import { NextResponse } from "next/server";
 import { readPensionJsonFile } from "@/lib/pensionJsonFile";
 import {
   getAllPensionRoundsRaw,
+  getMaxPensionOrderNum,
   getPensionRoundsCount,
   upsertPensionRoundsFromRaw,
 } from "@/lib/pensionSupabaseUtils";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const NO_CACHE_HEADERS = {
-  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+  "Cache-Control": "private, no-store, no-cache, must-revalidate, max-age=0",
   Pragma: "no-cache",
+  Expires: "0",
+  Vary: "*",
 } as const;
 
 /** DB가 비어 있으면 public/PensionLottery.json을 읽어 DB에 저장. 시드한 경우 방금 넣은 데이터 반환 */
@@ -38,6 +42,32 @@ async function seedPensionFromFileIfEmpty(): Promise<number[][] | null> {
   }
 }
 
+/**
+ * 배포된 public/PensionLottery.json이 DB보다 최신이면 upsert.
+ * (Vercel 등: Git에 올린 JSON은 빌드에 포함되지만, GET은 기본적으로 DB만 보고 있어서
+ *  새 회차가 반영되지 않던 문제를 막음.)
+ */
+async function syncPensionFileToDbIfNewer(): Promise<void> {
+  const rows = readPensionJsonFile();
+  if (!rows || rows.length === 0) return;
+  let dbMax = 0;
+  let dbCount = 0;
+  try {
+    dbMax = await getMaxPensionOrderNum();
+    dbCount = await getPensionRoundsCount();
+  } catch {
+    return;
+  }
+  const fileMax = Math.max(...rows.map((r) => Number(Array.isArray(r) ? r[0] : 0) || 0));
+  const fileCount = rows.length;
+  if (fileMax > dbMax || fileCount > dbCount) {
+    await upsertPensionRoundsFromRaw(rows);
+    console.log(
+      `[pension] PensionLottery.json 동기화: fileMax=${fileMax} dbMax=${dbMax}, fileCount=${fileCount} dbCount=${dbCount} → upsert ${fileCount}건`
+    );
+  }
+}
+
 /** 연금복권 데이터 조회. PensionLottery.json과 동일한 형태(number[][])로 반환 */
 export async function GET() {
   try {
@@ -45,6 +75,7 @@ export async function GET() {
     if (seededData && seededData.length > 0) {
       return NextResponse.json(seededData, { headers: NO_CACHE_HEADERS });
     }
+    await syncPensionFileToDbIfNewer();
     const data = await getAllPensionRoundsRaw();
     return NextResponse.json(data, { headers: NO_CACHE_HEADERS });
   } catch (e) {
