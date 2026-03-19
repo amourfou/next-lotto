@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, Save, Download } from 'lucide-react';
+import { Plus, Save, Download, RefreshCw } from 'lucide-react';
 import { LotteryData } from '../lib/dataParser';
 
 interface DataAdderProps {
@@ -17,6 +17,7 @@ export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderPr
   });
   
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isReanalyzing, setIsReanalyzing] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // 마지막 회차에 1을 더해서 자동 설정
@@ -151,15 +152,53 @@ export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderPr
     }
   };
 
+  /** public/PensionLottery.json → DB upsert 후 부모에서 데이터·통계 재로드 */
+  const handleReanalyze = async () => {
+    setIsReanalyzing(true);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/pension/reseed', { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok) {
+        setMessage({ type: 'error', text: result.error ?? '재분석(동기화)에 실패했습니다.' });
+        return;
+      }
+      setMessage({
+        type: 'success',
+        text: result.message ?? `DB에 ${result.count ?? 0}건 반영했습니다. 화면을 갱신합니다.`,
+      });
+      if (onDataAdded) {
+        setTimeout(() => onDataAdded(), 300);
+      }
+    } catch (error) {
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : '재분석 요청 중 오류가 발생했습니다.',
+      });
+    } finally {
+      setIsReanalyzing(false);
+    }
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-lg p-3 sm:p-4 md:p-6">
       <div className="flex items-center justify-end gap-2">
         <button
+          type="button"
           onClick={handleDownload}
           className="p-2 sm:p-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors touch-manipulation"
           title="현재 데이터 다운로드"
         >
           <Download size={18} />
+        </button>
+        <button
+          type="button"
+          onClick={handleReanalyze}
+          disabled={isReanalyzing}
+          className="p-2 sm:p-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
+          title="PensionLottery.json을 다시 읽어 DB에 저장하고 통계를 갱신합니다"
+        >
+          <RefreshCw size={18} className={isReanalyzing ? 'animate-spin' : ''} />
         </button>
         <button
           onClick={() => setIsOpen(!isOpen)}

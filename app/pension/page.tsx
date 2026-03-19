@@ -55,8 +55,10 @@ export default function PensionPage() {
     }
   }, [dataReloadKey]);
 
-  const handleDataAdded = () => {
-    setDataReloadKey(prev => prev + 1);
+  /** DB/파일 반영 후 데이터·통계 다시 로드 */
+  const handleDataReload = () => {
+    setIsLoading(true);
+    setDataReloadKey((prev) => prev + 1);
   };
 
   return (
@@ -104,7 +106,7 @@ export default function PensionPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
             <div className="space-y-4 sm:space-y-6">
               <div className="hidden md:block">
-                <DataAdder onDataAdded={handleDataAdded} lotteryData={lotteryData} />
+                <DataAdder onDataAdded={handleDataReload} lotteryData={lotteryData} />
               </div>
               <DataLoader
                 onDataLoaded={handleDataLoaded}
