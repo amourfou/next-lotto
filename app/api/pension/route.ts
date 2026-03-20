@@ -28,13 +28,26 @@ function pensionStatsHeader(rows: number[][]): Record<string, string> {
   return { "X-Pension-Stats": `count=${rows.length};min=${min};max=${max}` };
 }
 
-/** DB가 비어 있으면 public/PensionLottery.json을 읽어 DB에 저장. 시드한 경우 방금 넣은 데이터 반환 */
+/**
+ * DB가 비어 있으면 public/PensionLottery.json을 읽어 DB에 저장. 시드한 경우 방금 넣은 데이터 반환.
+ * 주의: getPensionRoundsCount()만 실패하면 예전에는 곧바로 JSON 파일을 반환해,
+ * DB에는 306만 있는데 배포된 파일에 307이 남아 있으면 X-Pension-Stats가 307로 나오는 불일치가 났음.
+ * → count 실패 시에도 먼저 getAllPensionRoundsRaw()로 DB를 읽고, 행이 있으면 파일로 폴백하지 않음.
+ */
 async function seedPensionFromFileIfEmpty(): Promise<number[][] | null> {
   let count: number;
   try {
     count = await getPensionRoundsCount();
   } catch (e) {
-    console.warn("[pension] DB 조회 실패(테이블 없음 등), 파일에서 로드 시도:", e);
+    console.warn("[pension] getPensionRoundsCount 실패 — DB 전체 조회로 재시도:", e);
+    try {
+      const fromDb = await getAllPensionRoundsRaw();
+      if (fromDb.length > 0) {
+        return null;
+      }
+    } catch (e2) {
+      console.warn("[pension] DB 전체 조회도 실패, 파일 폴백:", e2);
+    }
     return readPensionJsonFile();
   }
 
@@ -66,12 +79,20 @@ export async function GET() {
     const seededData = await seedPensionFromFileIfEmpty();
     if (seededData && seededData.length > 0) {
       return NextResponse.json(seededData, {
-        headers: { ...NO_CACHE_HEADERS, ...pensionStatsHeader(seededData) },
+        headers: {
+          ...NO_CACHE_HEADERS,
+          ...pensionStatsHeader(seededData),
+          "X-Pension-Source": "file-or-empty-db-seed",
+        },
       });
     }
     const data = await getAllPensionRoundsRaw();
     return NextResponse.json(data, {
-      headers: { ...NO_CACHE_HEADERS, ...pensionStatsHeader(data) },
+      headers: {
+        ...NO_CACHE_HEADERS,
+        ...pensionStatsHeader(data),
+        "X-Pension-Source": "database",
+      },
     });
   } catch (e) {
     console.error("pension GET error:", e);
