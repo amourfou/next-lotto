@@ -37,15 +37,18 @@ export async function getLottoRoundsCount(): Promise<number> {
 }
 
 export async function getMaxLottoRound(): Promise<number> {
+  /** .single()은 0행/다중행에서 예외가 나기 쉬워 limit(1) + 첫 행만 사용 */
   const { data, error } = await supabase
     .from("lotto_rounds")
     .select("round")
     .order("round", { ascending: false })
-    .limit(1)
-    .single();
+    .limit(1);
 
-  if (error && error.code !== "PGRST116") throw error;
-  return data?.round ?? 0;
+  if (error) throw error;
+  const raw = data?.[0]?.round;
+  if (raw == null) return 0;
+  const n = typeof raw === "number" ? raw : parseInt(String(raw), 10);
+  return Number.isNaN(n) ? 0 : n;
 }
 
 const SUPABASE_DEFAULT_MAX_ROWS = 1000;

@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useCallback, useState } from "react";
 import LottoBall from "../components/LottoBall";
 import NumberFilter, { type NumberFilterState, type FilterCategory } from "../components/NumberFilter";
 import GroupCountSelector from "../components/GroupCountSelector";
@@ -79,6 +79,76 @@ type Scope = {
 
 export function LottoPageMainContent({ scope }: { scope: Record<string, unknown> }) {
   const s = scope as unknown as Scope;
+
+  const [showWinningForm, setShowWinningForm] = useState(false);
+  const [nextWinningRound, setNextWinningRound] = useState<number | null>(null);
+  const [mainNums, setMainNums] = useState<string[]>(() => Array(6).fill(""));
+  const [bonusNum, setBonusNum] = useState("");
+  const [addWinningLoading, setAddWinningLoading] = useState(false);
+  const [addWinningMessage, setAddWinningMessage] = useState<{ type: "ok" | "error"; text: string } | null>(
+    null
+  );
+
+  const openWinningForm = useCallback(async () => {
+    setShowWinningForm(true);
+    setAddWinningMessage(null);
+    setMainNums(Array(6).fill(""));
+    setBonusNum("");
+    try {
+      const res = await fetch("/api/lotto/add-winning", { cache: "no-store" });
+      const j = (await res.json()) as { nextRound?: number };
+      if (typeof j.nextRound === "number") setNextWinningRound(j.nextRound);
+      else {
+        const latest = s.savedRounds?.data?.[0]?.round ?? 0;
+        setNextWinningRound(latest > 0 ? latest + 1 : 1);
+      }
+    } catch {
+      const latest = s.savedRounds?.data?.[0]?.round ?? 0;
+      setNextWinningRound(latest > 0 ? latest + 1 : 1);
+    }
+  }, [s.savedRounds]);
+
+  const saveWinningRound = async () => {
+    setAddWinningMessage(null);
+    const parsed: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      const v = parseInt(mainNums[i]?.trim() ?? "", 10);
+      if (Number.isNaN(v) || v < 1 || v > 45) {
+        setAddWinningMessage({ type: "error", text: `당첨 번호 ${i + 1}번째: 1~45 숫자를 입력하세요.` });
+        return;
+      }
+      parsed.push(v);
+    }
+    const bonus = parseInt(bonusNum.trim(), 10);
+    if (Number.isNaN(bonus) || bonus < 1 || bonus > 45) {
+      setAddWinningMessage({ type: "error", text: "보너스 번호는 1~45 숫자여야 합니다." });
+      return;
+    }
+    setAddWinningLoading(true);
+    try {
+      const res = await fetch("/api/lotto/add-winning", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numbers: parsed, bonus }),
+      });
+      const data = (await res.json()) as { error?: string; message?: string; round?: number };
+      if (!res.ok) {
+        setAddWinningMessage({ type: "error", text: data.error ?? "저장 실패" });
+        return;
+      }
+      setAddWinningMessage({ type: "ok", text: data.message ?? "저장됨" });
+      setMainNums(Array(6).fill(""));
+      setBonusNum("");
+      s.fetchDbScreenData();
+      s.fetchExclusionData();
+      const nr = await fetch("/api/lotto/add-winning", { cache: "no-store" }).then((r) => r.json());
+      if (typeof nr.nextRound === "number") setNextWinningRound(nr.nextRound);
+    } catch {
+      setAddWinningMessage({ type: "error", text: "통신 실패" });
+    } finally {
+      setAddWinningLoading(false);
+    }
+  };
 
   return (
     <main className="min-h-screen flex flex-col items-center p-6 pb-12">
@@ -202,10 +272,21 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
           <div className="flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
-              onClick={() => s.setShowDbScreen(false)}
+              onClick={() => {
+                setShowWinningForm(false);
+                s.setShowDbScreen(false);
+              }}
               className="px-4 py-2 rounded-xl text-sm font-medium bg-slate-600 text-slate-200 hover:bg-slate-500"
             >
               닫기
+            </button>
+            <button
+              type="button"
+              onClick={() => (showWinningForm ? setShowWinningForm(false) : openWinningForm())}
+              className="w-10 h-10 rounded-xl text-lg font-bold bg-emerald-600 text-white hover:bg-emerald-500 shadow-md shadow-emerald-900/30"
+              title={showWinningForm ? "입력 닫기" : "당첨 번호 추가"}
+            >
+              {showWinningForm ? "−" : "+"}
             </button>
             <button
               type="button"
@@ -257,6 +338,69 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
               {s.analysisLoading ? "분석 중.." : "분석"}
             </button>
           </div>
+
+          {showWinningForm && (
+            <div className="rounded-xl border border-emerald-600/40 bg-slate-900/70 py-2 px-3 w-full max-w-full">
+              <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
+                <span className="text-emerald-400/90 text-xs font-semibold shrink-0">당첨 추가</span>
+                <span className="text-slate-500 shrink-0">·</span>
+                <span className="text-slate-400 text-xs shrink-0">회차</span>
+                <span className="px-2 py-1 rounded-md bg-slate-800 text-amber-300 text-sm font-bold tabular-nums border border-slate-600 shrink-0">
+                  {nextWinningRound != null ? `${nextWinningRound}회` : "…"}
+                </span>
+                <span className="text-slate-500 shrink-0">|</span>
+                {mainNums.map((v, i) => (
+                  <input
+                    key={i}
+                    type="number"
+                    min={1}
+                    max={45}
+                    inputMode="numeric"
+                    title={`당첨 ${i + 1}번째`}
+                    placeholder="·"
+                    value={v}
+                    onChange={(e) => {
+                      const next = [...mainNums];
+                      next[i] = e.target.value;
+                      setMainNums(next);
+                    }}
+                    className="w-9 sm:w-10 h-9 shrink-0 text-center rounded-md bg-slate-800 text-white border border-slate-600 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                ))}
+                <span className="text-slate-400 text-xs shrink-0">보너스</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={45}
+                  inputMode="numeric"
+                  placeholder="B"
+                  title="보너스"
+                  value={bonusNum}
+                  onChange={(e) => setBonusNum(e.target.value)}
+                  className="w-9 sm:w-10 h-9 shrink-0 text-center rounded-md bg-slate-800 text-white border border-slate-600 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <button
+                  type="button"
+                  disabled={addWinningLoading}
+                  onClick={saveWinningRound}
+                  className="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 shrink-0 whitespace-nowrap"
+                >
+                  {addWinningLoading ? "저장…" : "저장"}
+                </button>
+                {addWinningMessage ? (
+                  <span
+                    className={`text-xs shrink-0 max-w-[140px] sm:max-w-[220px] truncate ${
+                      addWinningMessage.type === "ok" ? "text-emerald-400" : "text-red-400"
+                    }`}
+                    title={addWinningMessage.text}
+                  >
+                    {addWinningMessage.text}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          )}
+
           {s.seedMessage && (
             <p
               className={`text-center text-sm ${

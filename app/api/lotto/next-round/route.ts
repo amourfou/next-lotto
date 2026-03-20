@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
-import { getLastOfficialRound, getMaxLottoRound } from "@/lib/lottoSupabaseUtils";
+import { getMaxLottoRound } from "@/lib/lottoSupabaseUtils";
 
 export const dynamic = "force-dynamic";
 
-/** 추출 번호의 대상 회차 = 최신 당첨 회차 + 1. meta 없으면 lotto_rounds 최대 회차+1 사용 */
+/**
+ * 추출/클립보드용 “다음 회차” = lotto_rounds에 저장된 최대 회차 + 1.
+ * (last_official_round 메타만 쓰면 메타가 DB보다 뒤처진 경우 최근 당첨 회차와 같은 숫자가 나올 수 있음)
+ */
 export async function GET() {
   try {
-    const lastOfficial = await getLastOfficialRound();
-    const nextRound =
-      lastOfficial > 0 ? lastOfficial + 1 : (await getMaxLottoRound()) + 1;
-    return NextResponse.json({ nextRound: Math.max(1, nextRound) });
+    const maxRound = await getMaxLottoRound();
+    const nextRound = Math.max(1, maxRound + 1);
+    return NextResponse.json({ nextRound, maxRound });
   } catch (e) {
     console.error("lotto next-round GET error:", e);
     return NextResponse.json(

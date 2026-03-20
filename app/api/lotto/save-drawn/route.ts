@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getLastOfficialRound,
-  getMaxLottoRound,
-  deleteLottoDrawnByRound,
-  insertLottoDrawnBatch,
-} from "@/lib/lottoSupabaseUtils";
+import { getMaxLottoRound, deleteLottoDrawnByRound, insertLottoDrawnBatch } from "@/lib/lottoSupabaseUtils";
 
 export const dynamic = "force-dynamic";
 
@@ -34,11 +29,9 @@ export async function POST(request: NextRequest) {
       normalized.push([...nums].sort((a, b) => a - b));
     }
 
-    const lastOfficial = await getLastOfficialRound();
-    const nextRound = Math.max(
-      1,
-      lastOfficial > 0 ? lastOfficial + 1 : (await getMaxLottoRound()) + 1
-    );
+    /** UI/next-round API와 동일: lotto_rounds 최대 회차 + 1 */
+    const maxRound = await getMaxLottoRound();
+    const nextRound = Math.max(1, maxRound + 1);
 
     await deleteLottoDrawnByRound(nextRound);
     await insertLottoDrawnBatch(nextRound, normalized);
