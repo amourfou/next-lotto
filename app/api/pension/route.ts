@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { readPensionJsonFile } from "@/lib/pensionJsonFile";
 import {
   getAllPensionRoundsRaw,
-  getMaxPensionOrderNum,
   getPensionRoundsCount,
   upsertPensionRoundsFromRaw,
 } from "@/lib/pensionSupabaseUtils";
@@ -43,30 +42,11 @@ async function seedPensionFromFileIfEmpty(): Promise<number[][] | null> {
 }
 
 /**
- * 배포된 public/PensionLottery.json이 DB보다 최신이면 upsert.
- * (Vercel 등: Git에 올린 JSON은 빌드에 포함되지만, GET은 기본적으로 DB만 보고 있어서
- *  새 회차가 반영되지 않던 문제를 막음.)
+ * 조회(GET) 시에는 DB만 반환합니다. public/PensionLottery.json → DB 동기화는 하지 않습니다.
+ * (이전에는 GET마다 파일이 DB보다 “최신”이면 upsert해서, DB에서 삭제한 회차가
+ *  새로고침 때 JSON에 남아 있으면 다시 들어가는 문제가 있었습니다.)
+ * JSON을 DB에 맞추려면 연금복권 화면의 「재분석」또는 POST /api/pension/reseed 를 사용하세요.
  */
-async function syncPensionFileToDbIfNewer(): Promise<void> {
-  const rows = readPensionJsonFile();
-  if (!rows || rows.length === 0) return;
-  let dbMax = 0;
-  let dbCount = 0;
-  try {
-    dbMax = await getMaxPensionOrderNum();
-    dbCount = await getPensionRoundsCount();
-  } catch {
-    return;
-  }
-  const fileMax = Math.max(...rows.map((r) => Number(Array.isArray(r) ? r[0] : 0) || 0));
-  const fileCount = rows.length;
-  if (fileMax > dbMax || fileCount > dbCount) {
-    await upsertPensionRoundsFromRaw(rows);
-    console.log(
-      `[pension] PensionLottery.json 동기화: fileMax=${fileMax} dbMax=${dbMax}, fileCount=${fileCount} dbCount=${dbCount} → upsert ${fileCount}건`
-    );
-  }
-}
 
 /** 연금복권 데이터 조회. PensionLottery.json과 동일한 형태(number[][])로 반환 */
 export async function GET() {
@@ -75,7 +55,6 @@ export async function GET() {
     if (seededData && seededData.length > 0) {
       return NextResponse.json(seededData, { headers: NO_CACHE_HEADERS });
     }
-    await syncPensionFileToDbIfNewer();
     const data = await getAllPensionRoundsRaw();
     return NextResponse.json(data, { headers: NO_CACHE_HEADERS });
   } catch (e) {
