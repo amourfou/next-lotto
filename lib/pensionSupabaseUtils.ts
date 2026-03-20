@@ -28,7 +28,7 @@ export function rowToRawRow(row: {
   ];
 }
 
-/** 연금복권 전체 조회 (최신 회차 우선), PensionLottery.json과 동일한 number[][] 형태. 페이지 반복으로 행 제한 누락 방지 */
+/** 연금복권 전체 조회 (최신 회차 우선), API 응답과 동일한 number[][] 형태. 페이지 반복으로 행 제한 누락 방지 */
 export async function getAllPensionRoundsRaw(): Promise<number[][]> {
   const all: number[][] = [];
   let offset = 0;
@@ -117,7 +117,7 @@ function rawRowsToDbRows(rows: unknown[]): { order_num: number; jo: number; d1: 
     .filter((r) => !Number.isNaN(r.order_num));
 }
 
-/** 연금복권 여러 회차 한 번에 저장 (PensionLottery.json 형식의 number[][]). 중복 시 upsert */
+/** 연금복권 여러 회차 한 번에 저장 (number[][] 14칸 형식). 중복 시 upsert */
 export async function upsertPensionRoundsFromRaw(rows: unknown[]): Promise<number> {
   const dbRows = rawRowsToDbRows(rows);
   if (dbRows.length === 0) return 0;

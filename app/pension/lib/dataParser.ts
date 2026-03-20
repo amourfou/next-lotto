@@ -1,4 +1,4 @@
-// PensionLottery.json 데이터 파싱 함수들
+// 연금복권 데이터 파싱 (GET /api/pension = Supabase DB 기준)
 
 export interface LotteryData {
   order: number;
@@ -26,8 +26,8 @@ export function getLotteryDataSummary(lotteryData: LotteryData[]) {
 }
 
 /**
- * PensionLottery.json의 원시 데이터를 파싱하여 분석 가능한 형태로 변환
- * @param rawData - JSON 파일의 원시 데이터
+ * API/DB 원시 배열(number[][])을 파싱하여 분석 가능한 형태로 변환
+ * @param rawData - GET /api/pension 등에서 받은 number[][] 원시 데이터
  * @returns 파싱된 복권 데이터 배열
  */
 export function parseLotteryData(rawData: unknown): LotteryData[] {

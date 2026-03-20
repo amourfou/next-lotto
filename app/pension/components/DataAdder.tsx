@@ -145,7 +145,7 @@ export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderPr
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'PensionLottery.json';
+      a.download = 'pension-db-export.json';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -155,28 +155,22 @@ export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderPr
     }
   };
 
-  /** public/PensionLottery.json → DB upsert 후 부모에서 데이터·통계 재로드 */
-  const handleReanalyze = async () => {
+  /** DB에서만 다시 조회해 화면·통계 갱신 (로컬 JSON 파일 미사용) */
+  const handleRefreshFromDb = async () => {
     setIsReanalyzing(true);
     setMessage(null);
     try {
-      const response = await fetch('/api/pension/reseed', { method: 'POST' });
-      const result = await response.json();
-      if (!response.ok) {
-        setMessage({ type: 'error', text: result.error ?? '재분석(동기화)에 실패했습니다.' });
-        return;
+      if (onDataAdded) {
+        onDataAdded();
       }
       setMessage({
         type: 'success',
-        text: result.message ?? `DB에 ${result.count ?? 0}건 반영했습니다. 화면을 갱신합니다.`,
+        text: 'DB에서 데이터를 다시 불러왔습니다.',
       });
-      if (onDataAdded) {
-        setTimeout(() => onDataAdded(), 300);
-      }
     } catch (error) {
       setMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : '재분석 요청 중 오류가 발생했습니다.',
+        text: error instanceof Error ? error.message : '데이터 갱신 중 오류가 발생했습니다.',
       });
     } finally {
       setIsReanalyzing(false);
@@ -190,16 +184,16 @@ export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderPr
           type="button"
           onClick={handleDownload}
           className="p-2 sm:p-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors touch-manipulation"
-          title="현재 데이터 다운로드"
+          title="DB에 있는 연금복권 데이터를 JSON 파일로 저장"
         >
           <Download size={18} />
         </button>
         <button
           type="button"
-          onClick={handleReanalyze}
+          onClick={handleRefreshFromDb}
           disabled={isReanalyzing}
           className="p-2 sm:p-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
-          title="PensionLottery.json을 다시 읽어 DB에 저장하고 통계를 갱신합니다"
+          title="DB에서 연금복권 당첨 데이터를 다시 불러와 분석을 갱신합니다"
         >
           <RefreshCw size={18} className={isReanalyzing ? 'animate-spin' : ''} />
         </button>
