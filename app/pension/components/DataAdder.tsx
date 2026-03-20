@@ -136,7 +136,10 @@ export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderPr
 
   const handleDownload = async () => {
     try {
-      const response = await fetch('/api/pension');
+      const response = await fetch(`/api/pension?_=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
       const data = await response.json();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

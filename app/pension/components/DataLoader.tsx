@@ -67,15 +67,24 @@ export default function DataLoader({ onDataLoaded, onStatisticsLoaded, lotteryDa
           <div className="space-y-2">
             <p className="text-sm text-gray-600">
               {(() => {
-                const { maxOrder, rowCount, distinctOrders } = getLotteryDataSummary(lotteryData);
+                const { minOrder, maxOrder, rowCount, distinctOrders } = getLotteryDataSummary(lotteryData);
+                const span = maxOrder >= minOrder ? maxOrder - minOrder + 1 : 0;
+                const hasGap = distinctOrders === rowCount && span > rowCount;
                 return (
                   <>
-                    최신 <span className="font-semibold text-gray-800">{maxOrder}회</span>까지 · 데이터{' '}
-                    <span className="font-semibold text-gray-800">{rowCount}건</span>
+                    회차 번호{' '}
+                    <span className="font-semibold text-gray-800">
+                      {minOrder}~{maxOrder}
+                    </span>
+                    · 데이터 <span className="font-semibold text-gray-800">{rowCount}건</span>
                     {distinctOrders !== rowCount ? (
-                      <span className="text-gray-500"> (회차 {distinctOrders}개)</span>
-                    ) : null}{' '}
-                    로드됨
+                      <span className="text-amber-600"> (같은 회차 중복 {rowCount - distinctOrders}건)</span>
+                    ) : null}
+                    {hasGap ? (
+                      <span className="text-amber-600 block mt-1 text-xs">
+                        최고 회차({maxOrder})와 건수({rowCount})가 맞지 않습니다. DB에 중간 회차가 빠졌거나, 다른 환경의 DB/캐시를 보고 있을 수 있습니다. Supabase에서 max(order_num)과 행 수를 확인해 보세요.
+                      </span>
+                    ) : null}
                   </>
                 );
               })()}

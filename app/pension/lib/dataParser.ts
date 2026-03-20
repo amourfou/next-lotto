@@ -8,13 +8,17 @@ export interface LotteryData {
   bonusCombinedNumber?: number;
 }
 
-/** 로드된 데이터 요약: 최신 회차 번호(최대 order) vs 행 수(건수) — UI에서 혼동 방지용 */
+/** 로드된 데이터 요약: 최고/최저 회차·건수 (중간 회차 누락 시 max와 건수가 어긋나는지 확인용) */
 export function getLotteryDataSummary(lotteryData: LotteryData[]) {
   if (lotteryData.length === 0) {
-    return { maxOrder: 0, rowCount: 0, distinctOrders: 0 };
+    return { minOrder: 0, maxOrder: 0, rowCount: 0, distinctOrders: 0 };
   }
-  const orders = lotteryData.map((d) => d.order);
+  const orders = lotteryData.map((d) => Number(d.order)).filter((n) => !Number.isNaN(n));
+  if (orders.length === 0) {
+    return { minOrder: 0, maxOrder: 0, rowCount: lotteryData.length, distinctOrders: 0 };
+  }
   return {
+    minOrder: Math.min(...orders),
     maxOrder: Math.max(...orders),
     rowCount: lotteryData.length,
     distinctOrders: new Set(orders).size,
@@ -35,7 +39,7 @@ export function parseLotteryData(rawData: unknown): LotteryData[] {
     .filter((row): row is number[] => Array.isArray(row) && row.length >= 14)
     .map((row) => {
     // 0번째: 순서, 1번째: 조, 2~7번째: 번호, 8~13번째: 보너스번호
-    const order = row[0];
+    const order = Number(row[0]);
     const numbers = row.slice(2, 8); // 2,3,4,5,6,7번째 인덱스
     const bonusNumbers = row.length > 8 ? row.slice(8, 14) : undefined; // 8,9,10,11,12,13번째 인덱스
     
@@ -137,7 +141,11 @@ export function getDataByRange(lotteryData: LotteryData[], startOrder: number, e
  * @returns 파싱된 데이터, 숫자 배열, 통계 정보
  */
 export async function loadLotteryData(url: string = '/api/pension') {
-  const response = await fetch(url, { cache: 'no-store' });
+  const sep = url.includes('?') ? '&' : '?';
+  const response = await fetch(`${url}${sep}_=${Date.now()}`, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+  });
 
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);
