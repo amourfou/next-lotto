@@ -11,10 +11,22 @@ export const dynamic = "force-dynamic";
 const NO_CACHE_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
   Pragma: "no-cache",
+  Expires: "0",
   /** Vercel Edge가 API 응답을 캐시하지 않도록 */
   "CDN-Cache-Control": "no-store",
   "Vercel-CDN-Cache-Control": "no-store",
+  "Surrogate-Control": "no-store",
 } as const;
+
+/** 디버깅: Network 탭에서 서버가 조회한 행 수·최소·최대 회차 확인 (본문 JSON과 일치해야 함) */
+function pensionStatsHeader(rows: number[][]): Record<string, string> {
+  if (!rows.length) return { "X-Pension-Stats": "count=0" };
+  const orders = rows.map((r) => Number(r[0])).filter((n) => !Number.isNaN(n));
+  if (!orders.length) return { "X-Pension-Stats": `count=${rows.length};min=?;max=?` };
+  const min = Math.min(...orders);
+  const max = Math.max(...orders);
+  return { "X-Pension-Stats": `count=${rows.length};min=${min};max=${max}` };
+}
 
 /** DB가 비어 있으면 public/PensionLottery.json을 읽어 DB에 저장. 시드한 경우 방금 넣은 데이터 반환 */
 async function seedPensionFromFileIfEmpty(): Promise<number[][] | null> {
@@ -53,10 +65,14 @@ export async function GET() {
   try {
     const seededData = await seedPensionFromFileIfEmpty();
     if (seededData && seededData.length > 0) {
-      return NextResponse.json(seededData, { headers: NO_CACHE_HEADERS });
+      return NextResponse.json(seededData, {
+        headers: { ...NO_CACHE_HEADERS, ...pensionStatsHeader(seededData) },
+      });
     }
     const data = await getAllPensionRoundsRaw();
-    return NextResponse.json(data, { headers: NO_CACHE_HEADERS });
+    return NextResponse.json(data, {
+      headers: { ...NO_CACHE_HEADERS, ...pensionStatsHeader(data) },
+    });
   } catch (e) {
     console.error("pension GET error:", e);
     return NextResponse.json(
