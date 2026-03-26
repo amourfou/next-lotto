@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import {
   getMaxLottoRound,
   upsertLottoRounds,
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 /** UI에 표시할 다음 저장 회차 = 현재 DB 최대 회차 + 1 */
 export async function GET() {
+  noStore();
   try {
     const max = await getMaxLottoRound();
     const nextRound = Math.max(1, max + 1);

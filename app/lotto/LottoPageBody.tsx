@@ -612,7 +612,7 @@ export function LottoPageBody() {
   // DB에 저장된 분석 결과 불러오기. 9·45 조합이 없으면 재분석해서 DB·화면 반영
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/lotto/analysis")
+    fetch("/api/lotto/analysis", { cache: "no-store" })
       .then((res) => res.json())
       .then(async (json) => {
         if (cancelled) return;
@@ -641,7 +641,7 @@ export function LottoPageBody() {
 
   // 페이지 로드 시 당첨 내역·추출 내역의 6개 번호 세트 조회 → 메모리 보관 (뽑은 세트가 있으면 재추출)
   const fetchExclusionData = useCallback(() => {
-    fetch("/api/lotto/exclusion-data")
+    fetch("/api/lotto/exclusion-data", { cache: "no-store" })
       .then((res) => res.json())
       .then((json) => {
         if (!json.error) {

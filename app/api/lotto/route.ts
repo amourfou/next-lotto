@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import {
   getLottoRoundByRound,
   getLottoRounds,
@@ -8,6 +9,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  noStore();
   try {
     const { searchParams } = new URL(request.url);
     const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "50", 10), 1), 500);

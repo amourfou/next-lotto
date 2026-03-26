@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import { getLottoAnalysisRow } from "@/lib/lottoSupabaseUtils";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  noStore();
   try {
     const row = await getLottoAnalysisRow();
 

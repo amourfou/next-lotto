@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import { getExclusionSets } from "@/lib/lottoSupabaseUtils";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  noStore();
   try {
     const { winningSets, drawnSets } = await getExclusionSets();
     return NextResponse.json({
