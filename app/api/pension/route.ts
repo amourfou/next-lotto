@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import { getAllPensionRoundsRaw } from "@/lib/pensionSupabaseUtils";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ function pensionStatsHeader(rows: number[][]): Record<string, string> {
  * public/PensionLottery.json 등 로컬 파일은 읽지 않습니다.
  */
 export async function GET() {
+  noStore();
   try {
     const data = await getAllPensionRoundsRaw();
     return NextResponse.json(data, {
