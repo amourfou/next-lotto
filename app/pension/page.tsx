@@ -20,7 +20,7 @@ export default function PensionPage() {
   const [analysis, setAnalysis] = useState<NumberAnalysis | null>(null);
   const [lotteryData, setLotteryData] = useState<LotteryData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [dataReloadKey, setDataReloadKey] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const handleDataLoaded = (newNumbers: number[], newLotteryData: LotteryData[]) => {
     setNumbers(newNumbers);
@@ -31,8 +31,10 @@ export default function PensionPage() {
   };
 
   const loadData = async () => {
+    setIsLoading(true);
+    setLoadError(null);
     try {
-      const { parsedData, numbers: nums, statistics } = await loadLotteryData();
+      const { parsedData, numbers: nums } = await loadLotteryData();
       setNumbers(nums);
       setLotteryData(parsedData);
       if (nums.length > 0) {
@@ -40,6 +42,7 @@ export default function PensionPage() {
       }
     } catch (error) {
       console.error('데이터 로드 실패:', error);
+      setLoadError(error instanceof Error ? error.message : '데이터를 불러오는 중 오류가 발생했습니다.');
     } finally {
       setIsLoading(false);
     }
@@ -47,18 +50,12 @@ export default function PensionPage() {
 
   useEffect(() => {
     loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (dataReloadKey > 0) {
-      loadData();
-    }
-  }, [dataReloadKey]);
-
-  /** DB/파일 반영 후 데이터·통계 다시 로드 */
+  /** DB 반영 후 데이터·통계 다시 로드 */
   const handleDataReload = () => {
-    setIsLoading(true);
-    setDataReloadKey((prev) => prev + 1);
+    loadData();
   };
 
   return (
@@ -95,6 +92,18 @@ export default function PensionPage() {
 
         {!isLoading && lotteryData.length > 0 && (
           <PredictionGenerator lotteryData={lotteryData} analyzedNumbers={numbers} />
+        )}
+
+        {loadError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-300 rounded-lg text-red-700 text-sm">
+            ⚠️ 데이터 로드 실패: {loadError}
+            <button
+              onClick={() => loadData()}
+              className="ml-3 underline font-medium hover:text-red-900"
+            >
+              다시 시도
+            </button>
+          </div>
         )}
 
         {isLoading ? (

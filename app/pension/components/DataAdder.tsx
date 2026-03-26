@@ -156,25 +156,12 @@ export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderPr
   };
 
   /** DB에서만 다시 조회해 화면·통계 갱신 (로컬 JSON 파일 미사용) */
-  const handleRefreshFromDb = async () => {
+  const handleRefreshFromDb = () => {
     setIsReanalyzing(true);
-    setMessage(null);
-    try {
-      if (onDataAdded) {
-        onDataAdded();
-      }
-      setMessage({
-        type: 'success',
-        text: 'DB에서 데이터를 다시 불러왔습니다.',
-      });
-    } catch (error) {
-      setMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : '데이터 갱신 중 오류가 발생했습니다.',
-      });
-    } finally {
-      setIsReanalyzing(false);
+    if (onDataAdded) {
+      onDataAdded();
     }
+    setIsReanalyzing(false);
   };
 
   return (
