@@ -449,7 +449,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
             <p className="text-amber-400/90 text-sm text-center">조건에 맞는 그룹별 개수를 꼭 넣을 번호가 개수에 맞게 들어가도록, 또는 이하로 채울 번호가 부족하면 뽑기가 불가합니다.</p>
           )}
 
-          <div className="w-full flex gap-4 mt-6 items-start">
+          <div className="w-full flex gap-4 mt-2 items-start">
             {/* 왼쪽: 뽑은 번호 결과 */}
             <div className="shrink-0">
               {s.isDrawing && (() => {
@@ -687,14 +687,16 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                   n <= 27 ? "bg-red-500" :
                   n <= 36 ? "bg-slate-500" :
                   "bg-green-600";
+
+                // 회차별 번호 셋 (보너스 포함) 조회용 맵
+                const roundMap = new Map<number, Set<number>>();
+                for (const r of s.allRounds) {
+                  roundMap.set(r.round, new Set([r.n1, r.n2, r.n3, r.n4, r.n5, r.n6, r.bonus]));
+                }
+                const PREV_COUNT = 20;
+
                 return (
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h2 className="text-slate-400 font-semibold text-sm">선택한 회차의 번호를 뽑기에서 제외합니다</h2>
-                      {s.selectedPrevRounds.size > 0 && (
-                        <button onClick={() => s.setSelectedPrevRounds(new Set())} className="text-xs text-amber-400 hover:text-amber-300">전체 해제</button>
-                      )}
-                    </div>
                     {s.selectedPrevRounds.size > 0 && (
                       <div className="mb-2 p-2 bg-amber-900/30 rounded-lg border border-amber-700/50 text-xs text-amber-300">
                         제외 번호: {Array.from(s.selectedPrevRounds).flatMap(r => {
@@ -704,11 +706,16 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                       </div>
                     )}
                     {s.allRoundsLoading && <p className="text-slate-500 text-xs text-center py-4">불러오는 중..</p>}
-                    <div className="overflow-x-auto overflow-y-auto max-h-[380px]">
+                    <div className="flex gap-3 items-start">
+                    <div className="overflow-x-auto overflow-y-auto max-h-[504px]">
                       <table className="text-xs border-collapse">
-                        <thead>
-                          <tr className="text-slate-500 text-center">
+                        <thead className="sticky top-0 bg-slate-700 z-10">
+                          <tr className="text-slate-200 text-center">
                             <th className="pb-1 pr-2 text-left font-medium w-14">회차</th>
+                            {Array.from({ length: PREV_COUNT }, (_, k) => (
+                              <th key={k} className="pb-1 px-1 font-medium w-5 border border-slate-500">{k + 1}</th>
+                            ))}
+                            <th className="pb-1 w-2"></th>
                             <th className="pb-1 px-1 font-medium border border-slate-600/50">1</th>
                             <th className="pb-1 px-1 font-medium border border-slate-600/50">2</th>
                             <th className="pb-1 px-1 font-medium border border-slate-600/50">3</th>
@@ -717,13 +724,18 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                             <th className="pb-1 px-1 font-medium border border-slate-600/50">6</th>
                             <th className="pb-1 w-2"></th>
                             <th className="pb-1 px-1 font-medium border border-slate-600/50 text-fuchsia-400">B</th>
-                            <th className="pb-1 pl-2 w-8"></th>
+                            <th
+                              className="pb-1 w-8 cursor-pointer text-slate-400 hover:text-amber-400 transition-colors"
+                              onClick={() => s.setSelectedPrevRounds(new Set())}
+                              title="전체 해제"
+                            >✕</th>
                           </tr>
                         </thead>
                         <tbody>
                           {s.allRounds.map((row) => {
                             const isSelected = s.selectedPrevRounds.has(row.round);
                             const nums = [row.n1, row.n2, row.n3, row.n4, row.n5, row.n6];
+                            const currentNums = roundMap.get(row.round)!;
                             return (
                               <tr
                                 key={row.round}
@@ -737,6 +749,24 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                                 <td className={`pr-2 font-bold ${isSelected ? "text-amber-300" : "text-slate-400"}`}>
                                   {row.round}회
                                 </td>
+                                {Array.from({ length: PREV_COUNT }, (_, k) => {
+                                  const prevNums = roundMap.get(row.round - (k + 1));
+                                  if (!prevNums) return <td key={k} className="w-5 border border-slate-600/40" style={{ backgroundColor: "rgba(51,65,85,0.3)" }} />;
+                                  let cnt = 0;
+                                  currentNums.forEach(n => { if (prevNums.has(n)) cnt++; });
+                                  const alpha = cnt === 0 ? 0 : Math.min(0.2 + (cnt / 7) * 0.8, 1);
+                                  const bg = cnt === 0
+                                    ? "rgba(51,65,85,0.3)"
+                                    : `rgba(245,158,11,${alpha.toFixed(2)})`;
+                                  return (
+                                    <td key={k} className="text-center w-5 px-0 border border-slate-600/40" style={{ backgroundColor: bg }}>
+                                      {cnt > 0 && (
+                                        <span className={`font-semibold ${cnt >= 4 ? "text-white" : isSelected ? "text-amber-300" : "text-slate-300"}`}>{cnt}</span>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                                <td className="w-2" />
                                 {nums.map((n, i) => (
                                   <td key={i} className="p-0 text-center border border-slate-600/40">
                                     <span className={`inline-flex items-center justify-center w-7 h-6 text-white font-bold transition-opacity ${numBg(n)} ${isSelected ? "opacity-40" : ""}`}>
@@ -750,7 +780,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                                     {row.bonus}
                                   </span>
                                 </td>
-                                <td className="pl-2 text-right">
+                                <td className="text-right">
                                   {isSelected && <span className="text-amber-400 font-medium">제외</span>}
                                 </td>
                               </tr>
@@ -758,6 +788,42 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                           })}
                         </tbody>
                       </table>
+                    </div>
+
+                    {/* 오른쪽: k별 비율 */}
+                    {s.allRounds.length > 0 && (() => {
+                      const stats = Array.from({ length: PREV_COUNT }, (_, k) => {
+                        let total = 0, nonZero = 0;
+                        for (const r of s.allRounds) {
+                          const prev = roundMap.get(r.round - (k + 1));
+                          if (!prev) continue;
+                          total++;
+                          const cur = roundMap.get(r.round)!;
+                          let cnt = 0;
+                          cur.forEach(n => { if (prev.has(n)) cnt++; });
+                          if (cnt > 0) nonZero++;
+                        }
+                        return total > 0 ? nonZero / total : 0;
+                      });
+                      const maxRatio = Math.max(...stats);
+                      return (
+                        <div className="shrink-0 overflow-y-auto max-h-[504px]">
+                          <div className="sticky top-0 bg-slate-700 text-slate-200 text-xs font-medium text-center pb-1 mb-0">비율</div>
+                          {stats.map((ratio, k) => {
+                            const pct = (ratio * 100).toFixed(1);
+                            const barW = maxRatio > 0 ? (ratio / maxRatio) * 48 : 0;
+                            const alpha = 0.2 + ratio * 0.8;
+                            return (
+                              <div key={k} className="flex items-center gap-1 border border-slate-600/40 px-1" style={{ backgroundColor: `rgba(245,158,11,${alpha.toFixed(2)})` }}>
+                                <span className="text-xs text-slate-200 w-4 shrink-0">{k + 1}</span>
+                                <div className="h-3 rounded-sm bg-amber-400/60 shrink-0" style={{ width: `${barW}px` }} />
+                                <span className="text-xs text-white font-semibold shrink-0">{pct}%</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                     </div>
                   </div>
                 );
