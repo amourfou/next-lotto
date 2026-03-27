@@ -3,7 +3,6 @@
 import React, { useCallback, useState } from "react";
 import NumberFilter, { type NumberFilterState, type FilterCategory } from "../components/NumberFilter";
 import GroupCountSelector from "../components/GroupCountSelector";
-import { LottoPagePart1 } from "./LottoPagePart1";
 
 type Scope = {
   games: number[][];
@@ -27,6 +26,8 @@ type Scope = {
   runAnalysis: () => void;
   savedRounds: { data: { round: number; n1: number; n2: number; n3: number; n4: number; n5: number; n6: number; bonus: number }[]; total: number } | null;
   savedRoundsLoading: boolean;
+  allRounds: { round: number; n1: number; n2: number; n3: number; n4: number; n5: number; n6: number; bonus: number }[];
+  allRoundsLoading: boolean;
   mainTab: "draw" | "stats";
   setMainTab: (v: "draw" | "stats") => void;
   analysis: { totalRounds: number; hot: number[]; cold: number[]; sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> }; group9_45Distribution?: Record<string, number>; consecutivePattern?: { avgConsecutivePairs: number; avgMaxRun: number; pairDistribution: Record<number, number>; maxRunDistribution: Record<number, number> }; updatedAt: string } | null;
@@ -153,9 +154,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
   };
 
   return (
-    <main className="min-h-screen flex flex-col items-center p-6 pb-12">
-      {LottoPagePart1}
-
+    <main className="flex flex-col items-center p-6 pb-12">
       <div className="w-full max-w-4xl flex border-b border-slate-600/50 mb-6">
         {(["draw", "stats"] as const).map((tab) => (
           <button
@@ -431,94 +430,79 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
           </div>
         </div>
       ) : (
-        <div className="w-full max-w-2xl flex flex-col items-center">
+        <div className="w-full max-w-5xl flex flex-col items-center">
           {s.seedMessage && (
-            <p
-              className={`text-center text-sm mb-1 ${
-                s.seedMessage.type === "ok" ? "text-emerald-400" : "text-red-400"
-              }`}
-            >
+            <p className={`text-center text-sm mb-1 ${s.seedMessage.type === "ok" ? "text-emerald-400" : "text-red-400"}`}>
               {s.seedMessage.text}
             </p>
           )}
+          {!s.canDraw && (s.mustInclude.length > s.PICK_COUNT || s.mustExclude.length > 39) && (
+            <p className="text-amber-400/90 text-sm text-center">꼭 넣을 번호는 최대 6개, 꼭 뺄 번호는 최대 39개까지 가능합니다</p>
+          )}
+          {!s.canDraw && s.atLeastOne.length > 0 && s.atLeastOne.every((n) => s.mustExclude.includes(n)) && (
+            <p className="text-amber-400/90 text-sm text-center">&quot;하나 포함&quot; 번호 중 사용 가능한 번호가 최소 1개 있어야 합니다.</p>
+          )}
+          {!s.canDraw && !s.useGroupCountMode && s.poolSize < s.PICK_COUNT && (
+            <p className="text-amber-400/90 text-sm text-center">사용 가능 번호가 부족합니다 (현재 {s.poolSize}개)</p>
+          )}
+          {s.useGroupCountMode && !s.canDraw && (
+            <p className="text-amber-400/90 text-sm text-center">조건에 맞는 그룹별 개수를 꼭 넣을 번호가 개수에 맞게 들어가도록, 또는 이하로 채울 번호가 부족하면 뽑기가 불가합니다.</p>
+          )}
 
-          <div className="w-full max-w-2xl min-h-[80px] mb-4">
-            {s.isDrawing && (
-              <div className="flex flex-col items-center gap-1">
-                <table className="text-xs border-collapse opacity-40">
-                  <tbody>
-                    {Array.from({ length: Math.min(s.gameCount, 10) }).map((_, row) => (
-                      <tr key={row}>
-                        <td className="pr-2 text-slate-500 text-right">{row + 1}.</td>
-                        {Array.from({ length: 6 }).map((_, i) => (
-                          <td key={i} className="p-0 border border-slate-600/40">
-                            <div className="w-7 h-6 bg-slate-600 animate-pulse" style={{ animationDelay: `${(row * 6 + i) * 30}ms` }} />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {s.gameCount > 10 && (
-                  <p className="text-slate-500 text-xs text-center">뽑는 중..</p>
-                )}
-              </div>
-            )}
-            {s.games.length > 0 && !s.isDrawing && (() => {
-              const numBg = (n: number) =>
-                n <= 9 ? "bg-yellow-500" :
-                n <= 18 ? "bg-blue-500" :
-                n <= 27 ? "bg-red-500" :
-                n <= 36 ? "bg-slate-500" :
-                "bg-green-600";
-              return (
-                <div>
-                  <p className="text-slate-400 text-sm text-center font-medium mb-2">
-                    {s.nextRound}회차용 추출 번호
-                  </p>
-                  <table className="text-xs border-collapse mx-auto">
+          <div className="w-full flex gap-4 mt-6 items-start">
+            {/* 왼쪽: 뽑은 번호 결과 */}
+            <div className="shrink-0">
+              {s.isDrawing && (() => {
+                return (
+                  <table className="text-xs border-collapse opacity-40">
                     <tbody>
-                      {s.games.map((nums, row) => (
+                      {Array.from({ length: Math.min(s.gameCount, 10) }).map((_, row) => (
                         <tr key={row}>
                           <td className="pr-2 text-slate-500 text-right">{row + 1}.</td>
-                          {nums.map((num, i) => (
+                          {Array.from({ length: 6 }).map((_, i) => (
                             <td key={i} className="p-0 border border-slate-600/40">
-                              <span className={`inline-flex items-center justify-center w-7 h-6 text-white font-bold ${numBg(num)}`}>
-                                {num}
-                              </span>
+                              <div className="w-7 h-6 bg-slate-600 animate-pulse" style={{ animationDelay: `${(row * 6 + i) * 30}ms` }} />
                             </td>
                           ))}
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
-              );
-            })()}
-          </div>
+                );
+              })()}
+              {s.games.length > 0 && !s.isDrawing && (() => {
+                const numBg = (n: number) =>
+                  n <= 9 ? "bg-yellow-500" :
+                  n <= 18 ? "bg-blue-500" :
+                  n <= 27 ? "bg-red-500" :
+                  n <= 36 ? "bg-slate-500" :
+                  "bg-green-600";
+                return (
+                  <div>
+                    <p className="text-slate-400 text-xs font-medium mb-1">{s.nextRound}회차용</p>
+                    <table className="text-xs border-collapse">
+                      <tbody>
+                        {s.games.map((nums, row) => (
+                          <tr key={row}>
+                            <td className="pr-2 text-slate-500 text-right">{row + 1}.</td>
+                            {nums.map((num, i) => (
+                              <td key={i} className="p-0 border border-slate-600/40">
+                                <span className={`inline-flex items-center justify-center w-7 h-6 text-white font-bold ${numBg(num)}`}>
+                                  {num}
+                                </span>
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
 
-          {!s.canDraw && (s.mustInclude.length > s.PICK_COUNT || s.mustExclude.length > 39) && (
-            <p className="mt-2 text-amber-400/90 text-sm text-center">
-              꼭 넣을 번호는 최대 6개, 꼭 뺄 번호는 최대 39개까지 가능합니다
-            </p>
-          )}
-          {!s.canDraw && s.atLeastOne.length > 0 && s.atLeastOne.every((n) => s.mustExclude.includes(n)) && (
-            <p className="mt-2 text-amber-400/90 text-sm text-center">
-              &quot;하나 포함&quot; 번호 중 사용 가능한 번호가 최소 1개 있어야 합니다.
-            </p>
-          )}
-          {!s.canDraw && !s.useGroupCountMode && s.poolSize < s.PICK_COUNT && (
-            <p className="mt-2 text-amber-400/90 text-sm text-center">
-              사용 가능 번호가 부족합니다 (현재 {s.poolSize}개)
-            </p>
-          )}
-          {s.useGroupCountMode && !s.canDraw && (
-            <p className="mt-2 text-amber-400/90 text-sm text-center">
-              조건에 맞는 그룹별 개수를 꼭 넣을 번호가 개수에 맞게 들어가도록, 또는 이하로 채울 번호가 부족하면 뽑기가 불가합니다.
-            </p>
-          )}
-
-          <section className="w-full max-w-2xl mt-10">
+            {/* 오른쪽: 필터 탭 */}
+            <section className="flex-1 min-w-0">
             <div className="flex flex-wrap border-b border-slate-600/50">
               {s.TABS.map((tab) => (
                 <button
@@ -714,12 +698,13 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                     {s.selectedPrevRounds.size > 0 && (
                       <div className="mb-2 p-2 bg-amber-900/30 rounded-lg border border-amber-700/50 text-xs text-amber-300">
                         제외 번호: {Array.from(s.selectedPrevRounds).flatMap(r => {
-                          const row = s.savedRounds?.data.find(d => d.round === r);
+                          const row = s.allRounds.find(d => d.round === r);
                           return row ? [row.n1, row.n2, row.n3, row.n4, row.n5, row.n6, row.bonus].filter(Boolean) : [];
                         }).sort((a, b) => a - b).filter((v, i, a) => a.indexOf(v) === i).join(", ")}
                       </div>
                     )}
-                    <div className="overflow-x-auto">
+                    {s.allRoundsLoading && <p className="text-slate-500 text-xs text-center py-4">불러오는 중..</p>}
+                    <div className="overflow-x-auto overflow-y-auto max-h-[380px]">
                       <table className="text-xs border-collapse">
                         <thead>
                           <tr className="text-slate-500 text-center">
@@ -736,7 +721,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                           </tr>
                         </thead>
                         <tbody>
-                          {(s.savedRounds?.data ?? []).map((row) => {
+                          {s.allRounds.map((row) => {
                             const isSelected = s.selectedPrevRounds.has(row.round);
                             const nums = [row.n1, row.n2, row.n3, row.n4, row.n5, row.n6];
                             return (
@@ -778,7 +763,8 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                 );
               })()}
             </div>
-          </section>
+            </section>
+          </div>
         </div>
       )}
     </main>

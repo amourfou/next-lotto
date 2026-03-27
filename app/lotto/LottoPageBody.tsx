@@ -501,6 +501,8 @@ export function LottoPageBody() {
     total: number;
   } | null>(null);
   const [savedRoundsLoading, setSavedRoundsLoading] = useState(true);
+  const [allRounds, setAllRounds] = useState<{ round: number; n1: number; n2: number; n3: number; n4: number; n5: number; n6: number; bonus: number }[]>([]);
+  const [allRoundsLoading, setAllRoundsLoading] = useState(false);
   const [mainTab, setMainTab] = useState<"draw" | "stats">("draw");
   const [analysis, setAnalysis] = useState<{
     totalRounds: number;
@@ -591,13 +593,13 @@ export function LottoPageBody() {
   const prevRoundExclude = useMemo<number[]>(() => {
     if (selectedPrevRounds.size === 0) return [];
     const nums = new Set<number>();
-    for (const row of savedRounds?.data ?? []) {
+    for (const row of allRounds) {
       if (selectedPrevRounds.has(row.round)) {
         [row.n1, row.n2, row.n3, row.n4, row.n5, row.n6, row.bonus].forEach(n => { if (n) nums.add(n); });
       }
     }
     return Array.from(nums);
-  }, [selectedPrevRounds, savedRounds]);
+  }, [selectedPrevRounds, allRounds]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1000,8 +1002,30 @@ export function LottoPageBody() {
 
   const scope = {
     games, setGames, gameCount, setGameCount, isDrawing, filterStates, currentCategory,
-    groupCounts, groupEnabled, groupAtMost, seedLoading, seedMessage, activeTab, setActiveTab, sumMin, sumMax,
-    maxConsecutivePairs, selectedGroup9_45Keys, toggleGroup9_45Key, runAnalysis, savedRounds, savedRoundsLoading, mainTab, setMainTab, analysis, analysisLoading,
+    groupCounts, groupEnabled, groupAtMost, seedLoading, seedMessage, activeTab, setActiveTab: (tab: typeof activeTab) => {
+      setActiveTab(tab);
+      if (tab === "prevRound" && allRounds.length === 0) {
+        setAllRoundsLoading(true);
+        (async () => {
+          try {
+            const PAGE = 1000;
+            let offset = 0;
+            const collected: typeof allRounds = [];
+            while (true) {
+              const r = await fetch(`/api/lotto?limit=${PAGE}&offset=${offset}`, { cache: "no-store" });
+              const j = await r.json();
+              if (j.error || !Array.isArray(j.data) || j.data.length === 0) break;
+              collected.push(...j.data);
+              if (collected.length >= j.total || j.data.length < PAGE) break;
+              offset += PAGE;
+            }
+            setAllRounds(collected);
+          } catch {}
+          finally { setAllRoundsLoading(false); }
+        })();
+      }
+    }, sumMin, sumMax,
+    maxConsecutivePairs, selectedGroup9_45Keys, toggleGroup9_45Key, runAnalysis, savedRounds, savedRoundsLoading, allRounds, allRoundsLoading, mainTab, setMainTab, analysis, analysisLoading,
     saveDrawnLoading, saveDrawnMessage, fetchDbScreenData, handleDraw, canDraw, nextRound: resolvedNextRound,
     handleCategoryChange, handleNumberClick, handleGroupCountChange, handleToggleGroupEnabled, handleSetGroupAtMost,
     TABS, mustInclude, mustExclude, atLeastOne, useGroupCountMode, poolSize,

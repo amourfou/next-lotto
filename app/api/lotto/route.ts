@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   noStore();
   try {
     const { searchParams } = new URL(request.url);
-    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "50", 10), 1), 500);
+    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "50", 10), 1), 5000);
     const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10), 0);
     const round = searchParams.get("round");
 
