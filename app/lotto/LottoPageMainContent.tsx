@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useCallback, useState } from "react";
-import LottoBall from "../components/LottoBall";
 import NumberFilter, { type NumberFilterState, type FilterCategory } from "../components/NumberFilter";
 import GroupCountSelector from "../components/GroupCountSelector";
 import { LottoPagePart1 } from "./LottoPagePart1";
@@ -19,7 +18,7 @@ type Scope = {
   groupAtMost: Record<number, boolean>;
   seedLoading: boolean;
   seedMessage: { type: "ok" | "error"; text: string } | null;
-  activeTab: "number" | "group" | "group9_45" | "sum" | "consecutive";
+  activeTab: "number" | "group" | "group9_45" | "sum" | "consecutive" | "prevRound";
   sumMin: number | null;
   sumMax: number | null;
   maxConsecutivePairs: number | null;
@@ -28,7 +27,8 @@ type Scope = {
   runAnalysis: () => void;
   savedRounds: { data: { round: number; n1: number; n2: number; n3: number; n4: number; n5: number; n6: number; bonus: number }[]; total: number } | null;
   savedRoundsLoading: boolean;
-  showDbScreen: boolean;
+  mainTab: "draw" | "stats";
+  setMainTab: (v: "draw" | "stats") => void;
   analysis: { totalRounds: number; hot: number[]; cold: number[]; sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> }; group9_45Distribution?: Record<string, number>; consecutivePattern?: { avgConsecutivePairs: number; avgMaxRun: number; pairDistribution: Record<number, number>; maxRunDistribution: Record<number, number> }; updatedAt: string } | null;
   analysisLoading: boolean;
   saveDrawnLoading: boolean;
@@ -41,7 +41,7 @@ type Scope = {
   handleGroupCountChange: (groupKey: number, value: number) => void;
   handleToggleGroupEnabled: (groupKey: number) => void;
   handleSetGroupAtMost: (groupKey: number, atMost: boolean) => void;
-  TABS: { id: "number" | "group" | "group9_45" | "sum" | "consecutive"; label: string }[];
+  TABS: { id: "number" | "group" | "group9_45" | "sum" | "consecutive" | "prevRound"; label: string }[];
   mustInclude: number[];
   mustExclude: number[];
   atLeastOne: number[];
@@ -54,12 +54,14 @@ type Scope = {
   setAnalysisLoading: (v: boolean) => void;
   setSeedMessage: (v: { type: "ok" | "error"; text: string } | null) => void;
   setSeedLoading: (v: boolean) => void;
-  setShowDbScreen: (v: boolean) => void;
   setSumMin: (v: number | null) => void;
   setSumMax: (v: number | null) => void;
   setMaxConsecutivePairs: (v: number | null) => void;
-  setActiveTab: (v: "number" | "group" | "group9_45" | "sum" | "consecutive") => void;
+  setActiveTab: (v: "number" | "group" | "group9_45" | "sum" | "consecutive" | "prevRound") => void;
   fetchExclusionData: () => void;
+  selectedPrevRounds: Set<number>;
+  setSelectedPrevRounds: (v: Set<number> | ((prev: Set<number>) => Set<number>)) => void;
+  prevRoundExclude: number[];
   nextRound: number;
   MIN_GAMES: number;
   MAX_GAMES: number;
@@ -154,7 +156,24 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
     <main className="min-h-screen flex flex-col items-center p-6 pb-12">
       {LottoPagePart1}
 
-      <div className="flex flex-wrap items-center justify-center gap-3 mb-4">
+      <div className="w-full max-w-4xl flex border-b border-slate-600/50 mb-6">
+        {(["draw", "stats"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => { s.setMainTab(tab); if (tab === "stats") s.fetchDbScreenData(); }}
+            className={`px-5 py-2.5 text-sm font-medium transition-colors relative z-10 -mb-px ${
+              s.mainTab === tab
+                ? "border border-b-0 border-slate-600/50 rounded-t-lg bg-slate-800/50 text-amber-400"
+                : "border border-transparent text-slate-400 hover:text-slate-200 rounded-t-lg"
+            }`}
+          >
+            {tab === "draw" ? "번호 뽑기" : "통계"}
+          </button>
+        ))}
+      </div>
+
+      {s.mainTab === "draw" && <div className="flex flex-wrap items-center justify-center gap-3 mb-4">
         <span className="text-slate-400 text-sm">게임 수</span>
         <div className="flex items-center gap-1">
           <button
@@ -245,19 +264,9 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
         >
           {s.saveDrawnLoading ? "저장 중.." : "DB에 저장"}
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            s.setShowDbScreen(true);
-            s.fetchDbScreenData();
-          }}
-          className="px-4 py-2.5 rounded-xl text-sm font-medium bg-slate-600 text-slate-200 hover:bg-slate-500"
-        >
-          당첨번호 DB
-        </button>
-      </div>
+      </div>}
 
-      {s.saveDrawnMessage && (
+      {s.mainTab === "draw" && s.saveDrawnMessage && (
         <p
           className={`text-center text-sm mt-1 ${
             s.saveDrawnMessage.type === "ok" ? "text-emerald-400" : "text-red-400"
@@ -267,19 +276,9 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
         </p>
       )}
 
-      {s.showDbScreen ? (
+      {s.mainTab === "stats" ? (
         <div className="w-full max-w-2xl mt-4 space-y-4">
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setShowWinningForm(false);
-                s.setShowDbScreen(false);
-              }}
-              className="px-4 py-2 rounded-xl text-sm font-medium bg-slate-600 text-slate-200 hover:bg-slate-500"
-            >
-              닫기
-            </button>
             <button
               type="button"
               onClick={() => (showWinningForm ? setShowWinningForm(false) : openWinningForm())}
@@ -432,7 +431,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
           </div>
         </div>
       ) : (
-        <>
+        <div className="w-full max-w-2xl flex flex-col items-center">
           {s.seedMessage && (
             <p
               className={`text-center text-sm mb-1 ${
@@ -444,45 +443,58 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
           )}
 
           <div className="w-full max-w-2xl min-h-[80px] mb-4">
-            {s.games.length === 0 && !s.isDrawing && (
-              <p className="text-slate-500 text-center py-4 text-sm">게임 수를 선택한 뒤 뽑기 버튼으로 번호를 뽑아 보세요.</p>
-            )}
             {s.isDrawing && (
-              <div className="flex flex-col gap-2">
-                {Array.from({ length: Math.min(s.gameCount, 10) }).map((_, row) => (
-                  <div key={row} className="flex justify-center gap-1">
-                    {Array.from({ length: 6 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className="w-8 h-8 rounded-full bg-slate-600 animate-pulse"
-                        style={{ animationDelay: `${(row * 6 + i) * 30}ms` }}
-                      />
+              <div className="flex flex-col items-center gap-1">
+                <table className="text-xs border-collapse opacity-40">
+                  <tbody>
+                    {Array.from({ length: Math.min(s.gameCount, 10) }).map((_, row) => (
+                      <tr key={row}>
+                        <td className="pr-2 text-slate-500 text-right">{row + 1}.</td>
+                        {Array.from({ length: 6 }).map((_, i) => (
+                          <td key={i} className="p-0 border border-slate-600/40">
+                            <div className="w-7 h-6 bg-slate-600 animate-pulse" style={{ animationDelay: `${(row * 6 + i) * 30}ms` }} />
+                          </td>
+                        ))}
+                      </tr>
                     ))}
-                  </div>
-                ))}
+                  </tbody>
+                </table>
                 {s.gameCount > 10 && (
                   <p className="text-slate-500 text-xs text-center">뽑는 중..</p>
                 )}
               </div>
             )}
-            {s.games.length > 0 && !s.isDrawing && (
-              <div className="flex flex-col gap-2">
-                <p className="text-slate-400 text-sm text-center font-medium mb-0.5">
-                  {s.nextRound}회차용 추출 번호
-                </p>
-                <p className="text-slate-500 text-xs text-center mb-1">
-                  그룹별: 1~9 노랑 · 10~18 초록 · 19~27 파랑 · 28~36 보라 · 37~45 빨강
-                </p>
-                {s.games.map((nums, row) => (
-                  <div key={row} className="flex flex-wrap justify-center gap-1.5 md:gap-2 items-center">
-                    <span className="text-slate-500 text-xs w-5">{row + 1}.</span>
-                    {nums.map((num, i) => (
-                      <LottoBall key={i} number={num} index={i} />
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
+            {s.games.length > 0 && !s.isDrawing && (() => {
+              const numBg = (n: number) =>
+                n <= 9 ? "bg-yellow-500" :
+                n <= 18 ? "bg-blue-500" :
+                n <= 27 ? "bg-red-500" :
+                n <= 36 ? "bg-slate-500" :
+                "bg-green-600";
+              return (
+                <div>
+                  <p className="text-slate-400 text-sm text-center font-medium mb-2">
+                    {s.nextRound}회차용 추출 번호
+                  </p>
+                  <table className="text-xs border-collapse mx-auto">
+                    <tbody>
+                      {s.games.map((nums, row) => (
+                        <tr key={row}>
+                          <td className="pr-2 text-slate-500 text-right">{row + 1}.</td>
+                          {nums.map((num, i) => (
+                            <td key={i} className="p-0 border border-slate-600/40">
+                              <span className={`inline-flex items-center justify-center w-7 h-6 text-white font-bold ${numBg(num)}`}>
+                                {num}
+                              </span>
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
 
           {!s.canDraw && (s.mustInclude.length > s.PICK_COUNT || s.mustExclude.length > 39) && (
@@ -505,42 +517,25 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
               조건에 맞는 그룹별 개수를 꼭 넣을 번호가 개수에 맞게 들어가도록, 또는 이하로 채울 번호가 부족하면 뽑기가 불가합니다.
             </p>
           )}
-          {s.games.length > 0 && !s.isDrawing && (
-            <p className="mt-3 text-slate-500 text-sm">총 {s.games.length}게임 뽑음</p>
-          )}
-
-          <section className="w-full max-w-2xl mt-6">
-            {s.savedRoundsLoading ? (
-              <p className="text-slate-500 text-sm text-center">불러오는 중..</p>
-            ) : s.savedRounds && s.savedRounds.total > 0 ? (
-              <p className="text-slate-400 text-sm text-center">
-                저장된 당첨 번호: 총 {s.savedRounds.total}건 (최신 {s.savedRounds.data[0]?.round ?? "-"}회)
-              </p>
-            ) : (
-              <p className="text-slate-500 text-sm text-center">
-                저장된 데이터 없음. 당첨번호 DB 버튼으로 불러와 저장해 주세요.
-              </p>
-            )}
-          </section>
 
           <section className="w-full max-w-2xl mt-10">
-            <div className="flex flex-wrap justify-center gap-2 mb-4">
+            <div className="flex flex-wrap border-b border-slate-600/50">
               {s.TABS.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => s.setActiveTab(tab.id)}
-                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                  className={`px-4 py-2.5 text-sm font-medium transition-colors relative z-10 -mb-px ${
                     s.activeTab === tab.id
-                      ? "bg-amber-500/90 text-slate-900 ring-2 ring-amber-400"
-                      : "bg-slate-600/80 text-slate-300 hover:bg-slate-500"
+                      ? "border border-b-0 border-slate-600/50 rounded-t-lg bg-slate-800/50 text-amber-400"
+                      : "border border-transparent text-slate-400 hover:text-slate-200 rounded-t-lg"
                   }`}
                 >
                   {tab.label}
                 </button>
               ))}
             </div>
-            <div className="rounded-xl bg-slate-800/50 border border-slate-600/50 p-4 min-h-[140px]">
+            <div className="rounded-b-xl bg-slate-800/50 border border-t-0 border-slate-600/50 p-4 min-h-[140px]">
               {s.activeTab === "number" && (
                 <div>
                   <h2 className="text-slate-400 font-semibold text-sm mb-3 text-center">
@@ -701,9 +696,90 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                   <p className="text-slate-500 text-xs text-center">번호를 뽑은 뒤 설정은 계정 DB에 저장됩니다.</p>
                 </div>
               )}
+              {s.activeTab === "prevRound" && (() => {
+                const numBg = (n: number) =>
+                  n <= 9 ? "bg-yellow-500" :
+                  n <= 18 ? "bg-blue-500" :
+                  n <= 27 ? "bg-red-500" :
+                  n <= 36 ? "bg-slate-500" :
+                  "bg-green-600";
+                return (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h2 className="text-slate-400 font-semibold text-sm">선택한 회차의 번호를 뽑기에서 제외합니다</h2>
+                      {s.selectedPrevRounds.size > 0 && (
+                        <button onClick={() => s.setSelectedPrevRounds(new Set())} className="text-xs text-amber-400 hover:text-amber-300">전체 해제</button>
+                      )}
+                    </div>
+                    {s.selectedPrevRounds.size > 0 && (
+                      <div className="mb-2 p-2 bg-amber-900/30 rounded-lg border border-amber-700/50 text-xs text-amber-300">
+                        제외 번호: {Array.from(s.selectedPrevRounds).flatMap(r => {
+                          const row = s.savedRounds?.data.find(d => d.round === r);
+                          return row ? [row.n1, row.n2, row.n3, row.n4, row.n5, row.n6, row.bonus].filter(Boolean) : [];
+                        }).sort((a, b) => a - b).filter((v, i, a) => a.indexOf(v) === i).join(", ")}
+                      </div>
+                    )}
+                    <div className="overflow-x-auto">
+                      <table className="text-xs border-collapse">
+                        <thead>
+                          <tr className="text-slate-500 text-center">
+                            <th className="pb-1 pr-2 text-left font-medium w-14">회차</th>
+                            <th className="pb-1 px-1 font-medium border border-slate-600/50">1</th>
+                            <th className="pb-1 px-1 font-medium border border-slate-600/50">2</th>
+                            <th className="pb-1 px-1 font-medium border border-slate-600/50">3</th>
+                            <th className="pb-1 px-1 font-medium border border-slate-600/50">4</th>
+                            <th className="pb-1 px-1 font-medium border border-slate-600/50">5</th>
+                            <th className="pb-1 px-1 font-medium border border-slate-600/50">6</th>
+                            <th className="pb-1 w-2"></th>
+                            <th className="pb-1 px-1 font-medium border border-slate-600/50 text-fuchsia-400">B</th>
+                            <th className="pb-1 pl-2 w-8"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(s.savedRounds?.data ?? []).map((row) => {
+                            const isSelected = s.selectedPrevRounds.has(row.round);
+                            const nums = [row.n1, row.n2, row.n3, row.n4, row.n5, row.n6];
+                            return (
+                              <tr
+                                key={row.round}
+                                onClick={() => s.setSelectedPrevRounds(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(row.round)) next.delete(row.round); else next.add(row.round);
+                                  return next;
+                                })}
+                                className={`cursor-pointer transition-colors ${isSelected ? "bg-amber-900/20" : "hover:bg-slate-700/40"}`}
+                              >
+                                <td className={`pr-2 font-bold ${isSelected ? "text-amber-300" : "text-slate-400"}`}>
+                                  {row.round}회
+                                </td>
+                                {nums.map((n, i) => (
+                                  <td key={i} className="p-0 text-center border border-slate-600/40">
+                                    <span className={`inline-flex items-center justify-center w-7 h-6 text-white font-bold transition-opacity ${numBg(n)} ${isSelected ? "opacity-40" : ""}`}>
+                                      {n}
+                                    </span>
+                                  </td>
+                                ))}
+                                <td className="w-2" />
+                                <td className="p-0 text-center border border-slate-600/40">
+                                  <span className={`inline-flex items-center justify-center w-7 h-6 text-white font-bold transition-opacity bg-fuchsia-600 ${isSelected ? "opacity-40" : ""}`}>
+                                    {row.bonus}
+                                  </span>
+                                </td>
+                                <td className="pl-2 text-right">
+                                  {isSelected && <span className="text-amber-400 font-medium">제외</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </section>
-        </>
+        </div>
       )}
     </main>
   );

@@ -3,6 +3,7 @@
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Repeat, BarChart3, PieChart as PieChartIcon, Trophy, TrendingUp, Layers, Hash, Link } from 'lucide-react';
+import InfoTooltip from './InfoTooltip';
 import { LotteryData, analyzeDuplicatePatterns, DuplicatePatternAnalysisResult, analyzeDuplicatePositionPatterns, analyzeDuplicateFrequency, analyzeConsecutivePatterns, analyzeRangeDistribution, analyzeEvenOddPatterns, analyzeDigitPairPatterns } from '../lib/dataParser';
 
 interface DuplicatePatternAnalysisProps {
@@ -74,6 +75,7 @@ export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatte
       <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
         <Repeat size={24} />
         중복 숫자 패턴 분석
+        <InfoTooltip text="6자리 번호 내에서 같은 숫자가 2번 이상 반복 등장하는 패턴을 분석합니다. 중복 개수 분포, 자주 중복되는 숫자 순위, 중복 위치 패턴 등을 종합적으로 확인할 수 있습니다." width="w-80" />
       </h2>
 
       <div className="space-y-6">
@@ -93,6 +95,7 @@ export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatte
           <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
             <BarChart3 size={20} />
             중복 개수별 분포
+            <InfoTooltip text="한 회차에서 중복 숫자가 0개·1종류·2종류 이상 등장한 횟수를 나타냅니다. '중복 없음'이면 6자리 모두 다른 숫자입니다." width="w-72" />
           </h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={distributionData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
@@ -146,6 +149,7 @@ export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatte
             <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
               <Trophy size={20} />
               1개 중복 숫자별 빈도 순위
+              <InfoTooltip text="정확히 1가지 숫자가 2번 등장한 회차에서, 어떤 숫자가 중복되었는지 빈도 순위입니다. 연속 미출현 수가 클수록 최근 당첨에서 오래 나오지 않은 숫자입니다." width="w-80" />
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-2">
               {topDuplicates.map((item, index) => (
@@ -204,6 +208,7 @@ export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatte
               <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
                 <Repeat size={20} />
                 1개 중복 숫자 배치 패턴 분석 (O: 중복 숫자, X: 다른 숫자)
+                <InfoTooltip text="중복 숫자가 6자리 중 어느 위치에 배치되는지 패턴을 분석합니다. 예: 'OXXXXO'는 1번째와 6번째 자리에 같은 숫자가 등장한 패턴입니다." width="w-80" />
               </h3>
               
               <div className="space-y-4">
@@ -361,6 +366,7 @@ export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatte
                      <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
                        <Repeat size={20} />
                        같은 숫자 중복 빈도 분석
+                       <InfoTooltip text="한 회차에서 중복이 0번·2번·3번·4번 이상 등장한 비율 분포입니다. 2회 중복이 가장 일반적이며, 3회 이상은 드뭅니다." width="w-72" />
                      </h3>
                      
                      <div className="space-y-4">
@@ -438,6 +444,7 @@ export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatte
                      <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
                        <TrendingUp size={20} />
                        인접 자리 간 차이 패턴 분석
+                       <InfoTooltip text="6자리 번호에서 인접한 두 자리 숫자의 차이(절댓값) 패턴을 분석합니다. 예: '1→4'이면 인접 자리 차이가 3. 연속 증가/감소 여부도 확인합니다." width="w-80" />
                      </h3>
                      
                      <div className="space-y-4">
@@ -543,6 +550,7 @@ export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatte
                      <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
                        <Layers size={20} />
                        숫자 범위 분포 분석
+                       <InfoTooltip text="6자리 번호 중 낮은 숫자(0~3), 중간(4~6), 높은 숫자(7~9)가 각각 몇 개씩 포함되는지 비율을 분석합니다." width="w-72" />
                      </h3>
                      
                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -607,6 +615,7 @@ export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatte
                      <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
                        <Hash size={20} />
                        짝수/홀수 분포 분석
+                       <InfoTooltip text="6자리 번호에서 짝수(0,2,4,6,8)와 홀수(1,3,5,7,9)의 비율, 그리고 한 회차에 짝수가 몇 개 포함되는지 분포를 보여줍니다." width="w-80" />
                      </h3>
                      
                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -688,6 +697,7 @@ export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatte
                      <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
                        <Link size={20} />
                        인접 숫자 쌍 패턴 분석 (상위 10개)
+                       <InfoTooltip text="6자리 번호에서 인접한 두 자리(예: 1번째↔2번째)가 특정 숫자 조합으로 나타난 빈도 상위 10개입니다. 자주 함께 등장하는 숫자 쌍을 파악할 수 있습니다." width="w-80" />
                      </h3>
                      
                      <div className="overflow-x-auto">

@@ -3,6 +3,7 @@
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, Activity, Target } from 'lucide-react';
+import InfoTooltip from './InfoTooltip';
 import { LotteryData, analyzePreviousRoundComparison } from '../lib/dataParser';
 
 interface TrendAnalysisProps {
@@ -115,6 +116,7 @@ export default function TrendAnalysis({ lotteryData }: TrendAnalysisProps) {
       <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
         <Activity size={24} />
         트렌드 분석
+        <InfoTooltip text="회차별 6자리 번호(combinedNumber) 기준으로, 직전 회차 대비 증가·감소 추세와 변동 패턴을 분석합니다. 연속 상승/하락 구간, 변화량 분포, 예측 힌트를 확인할 수 있습니다." width="w-80" />
       </h2>
       
       <div className="space-y-6">
@@ -369,6 +371,7 @@ export default function TrendAnalysis({ lotteryData }: TrendAnalysisProps) {
           <h3 className="text-lg font-semibold text-gray-700 mb-2 flex items-center gap-2">
             <Target size={20} />
             트렌드 예측 힌트
+            <InfoTooltip text="지금까지의 연속 상승/하락 패턴과 최근 3회차 흐름을 바탕으로 다음 회차의 방향성을 힌트로 제공합니다. 통계적 참고용이며 당첨을 보장하지 않습니다." width="w-80" />
           </h3>
           <div className="text-sm text-gray-600 space-y-1">
             <p>• 최근 {maxUpStreak}회 연속 상승 패턴이 관찰되었습니다</p>

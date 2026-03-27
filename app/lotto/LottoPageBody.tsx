@@ -491,7 +491,7 @@ export function LottoPageBody() {
   const [groupAtMost, setGroupAtMost] = useState<GroupAtMost>(getDefaultGroupAtMost);
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedMessage, setSeedMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<"number" | "group" | "group9_45" | "sum" | "consecutive">("number");
+  const [activeTab, setActiveTab] = useState<"number" | "group" | "group9_45" | "sum" | "consecutive" | "prevRound">("number");
   const [sumMin, setSumMin] = useState<number | null>(null);
   const [sumMax, setSumMax] = useState<number | null>(null);
   const [maxConsecutivePairs, setMaxConsecutivePairs] = useState<number | null>(null);
@@ -501,7 +501,7 @@ export function LottoPageBody() {
     total: number;
   } | null>(null);
   const [savedRoundsLoading, setSavedRoundsLoading] = useState(true);
-  const [showDbScreen, setShowDbScreen] = useState(false);
+  const [mainTab, setMainTab] = useState<"draw" | "stats">("draw");
   const [analysis, setAnalysis] = useState<{
     totalRounds: number;
     hot: number[];
@@ -524,6 +524,9 @@ export function LottoPageBody() {
   const [exclusionDrawnSetKeys, setExclusionDrawnSetKeys] = useState<Set<string>>(new Set());
   /** 추출 번호의 대상 회차 (lotto_rounds 최대 회차 + 1). 표시·클립보드용 */
   const [nextRound, setNextRound] = useState<number>(1);
+  /** 이전 회차 선택 필터 */
+  const [prevRoundsOpen, setPrevRoundsOpen] = useState(false);
+  const [selectedPrevRounds, setSelectedPrevRounds] = useState<Set<number>>(new Set());
 
   // 분석 결과가 있고 합계 필터가 비어 있으면, 당첨 분포 기준으로 양끝 10% 제외한 기본 범위 적용
   useEffect(() => {
@@ -583,6 +586,18 @@ export function LottoPageBody() {
       latest != null && !Number.isNaN(Number(latest)) ? Number(latest) + 1 : 0;
     return Math.max(Number.isNaN(fromApi) ? 0 : fromApi, fromList, 1);
   }, [nextRound, savedRounds]);
+
+  /** 선택된 이전 회차 번호들을 추출 제외 목록으로 변환 */
+  const prevRoundExclude = useMemo<number[]>(() => {
+    if (selectedPrevRounds.size === 0) return [];
+    const nums = new Set<number>();
+    for (const row of savedRounds?.data ?? []) {
+      if (selectedPrevRounds.has(row.round)) {
+        [row.n1, row.n2, row.n3, row.n4, row.n5, row.n6, row.bonus].forEach(n => { if (n) nums.add(n); });
+      }
+    }
+    return Array.from(nums);
+  }, [selectedPrevRounds, savedRounds]);
 
   useEffect(() => {
     let cancelled = false;
@@ -731,6 +746,7 @@ export function LottoPageBody() {
     { id: "group9_45" as const, label: "9·45 조합" },
     { id: "sum" as const, label: "합계" },
     { id: "consecutive" as const, label: "연속" },
+    { id: "prevRound" as const, label: "이전 회차" },
   ];
 
   const toggleGroup9_45Key = useCallback((key: string) => {
@@ -932,8 +948,8 @@ export function LottoPageBody() {
         let result: number[] = [];
         for (let retry = 0; retry < maxRetry * maxSetRetry; retry++) {
           result = useGroupCountMode
-            ? drawByGroupCounts(groupCounts, groupEnabled, groupAtMost, mustInclude, mustExclude, [])
-            : drawLottoNumbers(mustInclude, mustExclude, atLeastOne, []);
+            ? drawByGroupCounts(groupCounts, groupEnabled, groupAtMost, mustInclude, mustExclude, prevRoundExclude)
+            : drawLottoNumbers(mustInclude, mustExclude, atLeastOne, prevRoundExclude);
           if (result.length !== PICK_COUNT) continue;
           if (!meetsPatternConstraints(result, sumMin, sumMax, maxConsecutivePairs, allowedGroup9_45)) continue;
           const key = toSetKey(result);
@@ -979,18 +995,20 @@ export function LottoPageBody() {
     selectedGroup9_45Keys,
     exclusionWinningSetKeys,
     exclusionDrawnSetKeys,
+    prevRoundExclude,
   ]);
 
   const scope = {
     games, setGames, gameCount, setGameCount, isDrawing, filterStates, currentCategory,
     groupCounts, groupEnabled, groupAtMost, seedLoading, seedMessage, activeTab, setActiveTab, sumMin, sumMax,
-    maxConsecutivePairs, selectedGroup9_45Keys, toggleGroup9_45Key, runAnalysis, savedRounds, savedRoundsLoading, showDbScreen, analysis, analysisLoading,
+    maxConsecutivePairs, selectedGroup9_45Keys, toggleGroup9_45Key, runAnalysis, savedRounds, savedRoundsLoading, mainTab, setMainTab, analysis, analysisLoading,
     saveDrawnLoading, saveDrawnMessage, fetchDbScreenData, handleDraw, canDraw, nextRound: resolvedNextRound,
     handleCategoryChange, handleNumberClick, handleGroupCountChange, handleToggleGroupEnabled, handleSetGroupAtMost,
     TABS, mustInclude, mustExclude, atLeastOne, useGroupCountMode, poolSize,
-    setSaveDrawnMessage, setSaveDrawnLoading, setSavedRounds, setAnalysis, setAnalysisLoading, setSeedMessage, setSeedLoading, setShowDbScreen,
+    setSaveDrawnMessage, setSaveDrawnLoading, setSavedRounds, setAnalysis, setAnalysisLoading, setSeedMessage, setSeedLoading,
     setSumMin, setSumMax, setMaxConsecutivePairs,
     fetchExclusionData,
+    prevRoundsOpen, setPrevRoundsOpen, selectedPrevRounds, setSelectedPrevRounds, prevRoundExclude,
     MIN_GAMES, MAX_GAMES, SUM_RANGE, PICK_COUNT, AnalysisResultView, SumHistogramChart,
   };
   return React.createElement(LottoPageMainContent, { scope });

@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { LotteryData, analyzePositionFrequency, analyzeDigitSum, analyzeDuplicatePatterns, analyzeDuplicatePositionPatterns, analyzeDuplicateFrequency, analyzePreviousRoundComparison, analyzePositionTransition, analyzeFirstDigitComparison } from '../lib/dataParser';
-import { Sparkles, RefreshCw, Dice6, TrendingUp, TrendingDown } from 'lucide-react';
+import { Sparkles, RefreshCw, Dice6, TrendingUp, TrendingDown, Save, Trash2, History, X } from 'lucide-react';
 
 interface PredictionGeneratorProps {
   lotteryData: LotteryData[];
@@ -10,10 +10,31 @@ interface PredictionGeneratorProps {
 }
 
 export interface PredictionOptions {
-  /** 사용자가 선택한 배치 패턴 (예: 'OXXXXO'). null이면 자동(가중치 랜덤) */
-  selectedPattern?: string | null;
-  /** 사용자가 선택한 중복 숫자 (0~9). null이면 자동(가중치 랜덤) */
-  selectedDuplicateDigit?: number | null;
+  /** 사용자가 선택한 배치 패턴 목록. 비어 있으면 자동(가중치 랜덤) */
+  selectedPatterns?: string[];
+  /** 사용자가 선택한 중복 숫자 목록 (0~9). 비어 있으면 자동(가중치 랜덤) */
+  selectedDuplicateDigits?: number[];
+  /** 합계를 ±1σ 범위로 제한 */
+  limitToStdDev?: boolean;
+  /** 최근 회차 합계 추이를 목표 합계에 반영 */
+  useRecentTrend?: boolean;
+}
+
+const DIGIT_COLORS: Record<number, string> = {
+  0: 'from-gray-400 to-gray-600',
+  1: 'from-red-400 to-red-600',
+  2: 'from-orange-400 to-orange-600',
+  3: 'from-amber-400 to-yellow-500',
+  4: 'from-lime-500 to-green-600',
+  5: 'from-teal-400 to-cyan-600',
+  6: 'from-blue-500 to-blue-700',
+  7: 'from-indigo-500 to-indigo-700',
+  8: 'from-purple-500 to-purple-700',
+  9: 'from-pink-500 to-rose-600',
+};
+
+function digitColor(n: number): string {
+  return DIGIT_COLORS[n] ?? 'from-gray-400 to-gray-600';
 }
 
 /**
@@ -41,7 +62,23 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
   const lastRoundDigits = sortedData.length > 0 ? sortedData[0].numbers : null; // 마지막 회차의 각 자리 숫자
 
   // 목표 합계 (평균과 최빈값의 중간값 근처)
-  const targetSum = Math.round((sumAnalysis.statistics.avgSum + sumAnalysis.statistics.modeSum) / 2);
+  const baseTargetSum = Math.round((sumAnalysis.statistics.avgSum + sumAnalysis.statistics.modeSum) / 2);
+
+  // 최근 추이 반영: 최근 20회차에 지수 가중치를 적용한 평균 합계 계산
+  let targetSum = baseTargetSum;
+  if (options?.useRecentTrend) {
+    const recentData = [...lotteryData].sort((a, b) => b.order - a.order).slice(0, 20);
+    let weightedSum = 0;
+    let totalWeight = 0;
+    recentData.forEach((d, i) => {
+      const w = Math.exp(-i * 0.15); // 최신일수록 높은 가중치
+      weightedSum += d.numbers.reduce((s, n) => s + n, 0) * w;
+      totalWeight += w;
+    });
+    const recentTrendTarget = totalWeight > 0 ? weightedSum / totalWeight : baseTargetSum;
+    // 전체 통계(70%)와 추이(30%) 블렌딩
+    targetSum = Math.round(baseTargetSum * 0.7 + recentTrendTarget * 0.3);
+  }
   
   // 변화량 범위 (최소/최대 차이)
   const minChange = previousComparison.changeStatistics.minChange;
@@ -76,9 +113,14 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
   }
   
   // 사용자가 배치 패턴을 지정했으면 2중복 + 배치 패턴 모드로 고정
-  const forcePattern = options?.selectedPattern != null && options.selectedPattern !== '';
-  const validPattern = forcePattern && positionPatternAnalysis.patternDetails.some(p => p.pattern === options!.selectedPattern);
-  
+  const selectedPatternsList = options?.selectedPatterns ?? [];
+  const forcePattern = selectedPatternsList.length > 0;
+  // 선택된 패턴 중 랜덤으로 하나 선택
+  const chosenPattern = forcePattern
+    ? selectedPatternsList[Math.floor(Math.random() * selectedPatternsList.length)]
+    : null;
+  const validPattern = chosenPattern != null && positionPatternAnalysis.patternDetails.some(p => p.pattern === chosenPattern);
+
   // 배치 패턴을 고려한 숫자 생성 (1개 중복 패턴은 selectedFrequency가 2일 때만, 또는 사용자가 패턴 지정 시)
   const usePositionPattern = (validPattern || (selectedFrequency === 2 && Math.random() < 0.5)) && positionPatternAnalysis.patternDetails.length > 0;
   const effectiveFrequency = validPattern ? 2 : selectedFrequency;
@@ -88,8 +130,8 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
   if (usePositionPattern) {
     // 배치 패턴 기반 생성
     let selectedPattern: string;
-    if (validPattern && options!.selectedPattern) {
-      selectedPattern = options!.selectedPattern;
+    if (validPattern && chosenPattern) {
+      selectedPattern = chosenPattern;
     } else {
       // 패턴 빈도를 가중치로 사용하는 룰렛 휠 방식 (빈도가 높을수록 더 잘 선택됨)
       const patternWeights = positionPatternAnalysis.patternDetails.map(p => ({
@@ -110,8 +152,11 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
     
     // 중복될 숫자 선택: 사용자 지정 또는 1개 중복 숫자 빈도 순위 기반 룰렛 휠
     let duplicateDigit: number;
-    const userDigit = options?.selectedDuplicateDigit;
-    if (userDigit !== undefined && userDigit !== null && userDigit >= 0 && userDigit <= 9) {
+    const selectedDupDigits = options?.selectedDuplicateDigits ?? [];
+    const userDigit = selectedDupDigits.length > 0
+      ? selectedDupDigits[Math.floor(Math.random() * selectedDupDigits.length)]
+      : null;
+    if (userDigit !== null && userDigit >= 0 && userDigit <= 9) {
       duplicateDigit = userDigit;
     } else {
       const singleDuplicateWeights = duplicateAnalysis.singleDuplicateDigitRanking.map(item => ({
@@ -250,9 +295,12 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
       // selectedFrequency 개의 중복을 가지는 숫자 생성
       // 중복될 숫자 선택: 사용자 지정 또는 각 자리별 빈도 기반
       const duplicateDigit = (() => {
-        const userDigit = options?.selectedDuplicateDigit;
-        if (userDigit !== undefined && userDigit !== null && userDigit >= 0 && userDigit <= 9) {
-          return userDigit;
+        const selectedDupDigits2 = options?.selectedDuplicateDigits ?? [];
+        const userDigit2 = selectedDupDigits2.length > 0
+          ? selectedDupDigits2[Math.floor(Math.random() * selectedDupDigits2.length)]
+          : null;
+        if (userDigit2 !== null && userDigit2 >= 0 && userDigit2 <= 9) {
+          return userDigit2;
         }
         const posData = positionFreq[0]; // 첫 번째 자리 기준으로 선택
         const weights: { digit: number; weight: number }[] = [];
@@ -340,8 +388,8 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
   }
   
   // 사용자가 배치 패턴 또는 중복 숫자를 지정했으면, 이후 합계/직전회차 조정을 하지 않아 선택이 유지되도록 함
-  const userSpecifiedOptions = (options?.selectedPattern != null && options.selectedPattern !== '') ||
-    (options?.selectedDuplicateDigit != null && options.selectedDuplicateDigit >= 0 && options.selectedDuplicateDigit <= 9);
+  const userSpecifiedOptions = selectedPatternsList.length > 0 ||
+    (options?.selectedDuplicateDigits ?? []).length > 0;
 
   if (!userSpecifiedOptions) {
     let currentSum = generatedDigits.reduce((sum, d) => sum + d, 0);
@@ -437,20 +485,127 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
   const [predictionPattern, setPredictionPattern] = useState<string | null>(null);
   const [patternCount, setPatternCount] = useState<number | null>(null);
   const [patternPercentage, setPatternPercentage] = useState<number | null>(null);
-  const [patternRank, setPatternRank] = useState<number | null>(null); // 배치 패턴 순위
-  const [patternTotalCount, setPatternTotalCount] = useState<number | null>(null); // 전체 패턴 개수
+  const [patternRank, setPatternRank] = useState<number | null>(null);
+  const [patternTotalCount, setPatternTotalCount] = useState<number | null>(null);
   const [digitDuplicateProbability, setDigitDuplicateProbability] = useState<number | null>(null);
-  const [duplicateDigitRank, setDuplicateDigitRank] = useState<number | null>(null); // 중복 숫자 순위
-  const [duplicateDigitTotalCount, setDuplicateDigitTotalCount] = useState<number | null>(null); // 전체 중복 숫자 개수
-  const [duplicateDigit, setDuplicateDigit] = useState<number | null>(null); // 중복된 숫자
+  const [duplicateDigitRank, setDuplicateDigitRank] = useState<number | null>(null);
+  const [duplicateDigitTotalCount, setDuplicateDigitTotalCount] = useState<number | null>(null);
+  const [duplicateDigit, setDuplicateDigit] = useState<number | null>(null);
   const [digitProbabilities, setDigitProbabilities] = useState<number[]>([]);
-  const [transitionProbabilities, setTransitionProbabilities] = useState<number[]>([]); // 각 자리별 전이 확률
-  const [lastRoundDigits, setLastRoundDigits] = useState<number[] | null>(null); // 직전 회차의 각 자리 숫자
+  const [transitionProbabilities, setTransitionProbabilities] = useState<number[]>([]);
+  const [lastRoundDigits, setLastRoundDigits] = useState<number[] | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  /** 사용자 선택: 배치 패턴 (null = 자동) */
-  const [selectedPatternOption, setSelectedPatternOption] = useState<string | null>(null);
-  /** 사용자 선택: 중복 숫자 (null = 자동) */
-  const [selectedDuplicateDigitOption, setSelectedDuplicateDigitOption] = useState<number | null>(null);
+  const [selectedPatternOptions, setSelectedPatternOptions] = useState<string[]>([]);
+  const [selectedDuplicateDigitOptions, setSelectedDuplicateDigitOptions] = useState<number[]>([]);
+  const [limitToStdDevOption, setLimitToStdDevOption] = useState(false);
+  const [useRecentTrendOption, setUseRecentTrendOption] = useState(false);
+
+  // ── 저장 관련 state ──────────────────────────────────────────────────────
+  const [savedPredictions, setSavedPredictions] = useState<number[][]>([]);
+  const [nextRound, setNextRound] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // ── 이전번호 히스토리 팝업 state ─────────────────────────────────────────
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historyData, setHistoryData] = useState<{
+    round: number;
+    predictions: number[][];
+    options: {
+      selectedPatterns: string[];
+      selectedDuplicateDigits: number[];
+      limitToStdDev: boolean;
+      useRecentTrend: boolean;
+    } | null;
+  }[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
+  const loadSaved = useCallback(async () => {
+    try {
+      const res = await fetch('/api/pension/drawn', { cache: 'no-store' });
+      const json = await res.json();
+      if (!json.error) {
+        setSavedPredictions(json.predictions ?? []);
+        setNextRound(json.round ?? null);
+      }
+    } catch {
+      // 조회 실패는 조용히 무시
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSaved();
+  }, [loadSaved]);
+
+  const handleSave = async () => {
+    if (!predictedNumbers) return;
+    setIsSaving(true);
+    setSaveMessage(null);
+    try {
+      // 기존 저장 목록에 현재 번호 추가해서 저장
+      const newList = [...savedPredictions, predictedNumbers];
+      const res = await fetch('/api/pension/save-drawn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          predictions: newList,
+          options: {
+            selectedPatterns: selectedPatternOptions,
+            selectedDuplicateDigits: selectedDuplicateDigitOptions,
+            limitToStdDev: limitToStdDevOption,
+            useRecentTrend: useRecentTrendOption,
+          },
+        }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setSaveMessage({ type: 'success', text: json.message });
+        await loadSaved();
+      } else {
+        setSaveMessage({ type: 'error', text: json.error || '저장 실패' });
+      }
+    } catch (e) {
+      setSaveMessage({ type: 'error', text: '저장 중 오류가 발생했습니다.' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (savedPredictions.length === 0) return;
+    setIsSaving(true);
+    setSaveMessage(null);
+    try {
+      const res = await fetch('/api/pension/drawn', { method: 'DELETE' });
+      const json = await res.json();
+      if (res.ok) {
+        setSavedPredictions([]);
+        setSaveMessage({ type: 'success', text: '저장 목록을 초기화했습니다.' });
+      } else {
+        setSaveMessage({ type: 'error', text: json.error || '초기화 실패' });
+      }
+    } catch {
+      setSaveMessage({ type: 'error', text: '초기화 중 오류가 발생했습니다.' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  const handleOpenHistory = async () => {
+    setIsHistoryOpen(true);
+    setIsHistoryLoading(true);
+    try {
+      const res = await fetch('/api/pension/drawn/all', { cache: 'no-store' });
+      const json = await res.json();
+      if (!json.error) {
+        setHistoryData(json.data ?? []);
+      }
+    } catch {
+      // 조회 실패는 무시
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleGenerate = () => {
     setIsGenerating(true);
@@ -464,10 +619,29 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
       
       // 보너스 포함 여부에 관계없이, 현재 분석에 사용된 lotteryData를 그대로 사용
       // (lotteryData는 이미 현재 분석에 사용된 데이터이므로)
-      const numbers = generatePrediction(lotteryData, {
-        selectedPattern: selectedPatternOption,
-        selectedDuplicateDigit: selectedDuplicateDigitOption
-      });
+      // ±1σ 제한용 사전 계산
+      const allSums = lotteryData.map(d => d.numbers.reduce((s, n) => s + n, 0));
+      const avgSum = allSums.reduce((a, b) => a + b, 0) / allSums.length;
+      const stdDev = Math.sqrt(allSums.reduce((acc, s) => acc + Math.pow(s - avgSum, 2), 0) / allSums.length);
+
+      const genOpts = {
+        selectedPatterns: selectedPatternOptions,
+        selectedDuplicateDigits: selectedDuplicateDigitOptions,
+        limitToStdDev: limitToStdDevOption,
+        useRecentTrend: useRecentTrendOption,
+      };
+
+      const savedKeys = new Set(savedPredictions.map(d => d.join(',')));
+      let numbers = generatePrediction(lotteryData, genOpts);
+      let retries = 0;
+      while (retries < 100) {
+        const s = numbers.reduce((a, b) => a + b, 0);
+        const isDuplicate = savedKeys.size > 0 && savedKeys.has(numbers.join(','));
+        const outOfStdDev = limitToStdDevOption && Math.abs(s - avgSum) > stdDev;
+        if (!isDuplicate && !outOfStdDev) break;
+        numbers = generatePrediction(lotteryData, genOpts);
+        retries++;
+      }
       const sum = numbers.reduce((s, n) => s + n, 0);
       
       // 생성된 숫자의 패턴 분석
@@ -695,55 +869,122 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
           </div>
         </div>
         <button
+          onClick={handleOpenHistory}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-purple-700 border border-purple-300 rounded-lg hover:bg-purple-50 transition-colors touch-manipulation"
+          title="이전 회차 저장 번호 보기"
+        >
+          <History size={16} />
+          이전번호보기
+        </button>
+        <button
           onClick={handleGenerate}
           disabled={isGenerating}
-          className="p-3 sm:p-3.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation min-w-[44px] min-h-[44px] w-full sm:w-auto"
-          title={isGenerating ? '생성 중...' : '숫자 생성'}
+          className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all shadow disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm shrink-0 touch-manipulation"
         >
-          {isGenerating ? (
-            <RefreshCw className="animate-spin" size={20} />
-          ) : (
-            <Dice6 size={20} />
-          )}
+          {isGenerating ? <RefreshCw className="animate-spin" size={15} /> : <Dice6 size={15} />}
+          {isGenerating ? '생성 중...' : '뽑기'}
         </button>
       </div>
 
       {/* 배치 패턴 / 중복 숫자 선택 옵션 */}
       <div className="mb-4 p-3 sm:p-4 bg-white/70 rounded-lg border border-purple-200">
-        <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-2">예측 옵션 (선택 시 해당 항목으로 고정)</div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          <div>
-            <label htmlFor="pattern-combo" className="block text-[10px] sm:text-xs text-gray-600 mb-1.5">배치 패턴</label>
-            <select
-              id="pattern-combo"
-              value={selectedPatternOption ?? ''}
-              onChange={(e) => setSelectedPatternOption(e.target.value === '' ? null : e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-sm font-medium text-gray-800 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-            >
-              <option value="">자동</option>
-              {positionPatternAnalysis.patternDetails.map((p) => (
-                <option key={p.pattern} value={p.pattern} title={`출현 ${p.count}회, 최근 ${p.absenceCount}회 연속 미출현, ${p.percentage.toFixed(1)}%`}>
-                  {p.pattern} (출현 {p.count}회 / 연속 미출현 {p.absenceCount}회)
-                </option>
-              ))}
-            </select>
+        <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-3">예측 옵션 (복수 선택 가능, 미선택 시 자동)</div>
+
+        {/* 배치 패턴 + 중복 숫자 — 같은 줄 카드 */}
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {/* 배치 패턴 카드 */}
+          <div className="bg-white rounded-lg border border-purple-100 p-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-gray-600">배치 패턴</span>
+              {selectedPatternOptions.length > 0 && (
+                <button onClick={() => setSelectedPatternOptions([])} className="text-[10px] text-purple-400 hover:text-purple-600">해제</button>
+              )}
+            </div>
+            <div className="grid grid-cols-5 gap-1">
+              {positionPatternAnalysis.patternDetails.map((p) => {
+                const isChecked = selectedPatternOptions.includes(p.pattern);
+                return (
+                  <button
+                    key={p.pattern}
+                    onClick={() => setSelectedPatternOptions(prev =>
+                      isChecked ? prev.filter(x => x !== p.pattern) : [...prev, p.pattern]
+                    )}
+                    className={`flex flex-col items-center gap-0.5 py-1 px-0.5 rounded-lg border transition-all ${
+                      isChecked ? 'border-purple-400 bg-purple-100' : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50/60'
+                    }`}
+                  >
+                    <div className={`font-mono text-xs leading-tight ${isChecked ? 'text-purple-700 font-bold' : 'text-gray-700'}`}>
+                      {p.pattern}
+                    </div>
+                    <div className="text-[10px] text-gray-600 leading-tight text-center">
+                      {p.percentage.toFixed(1)}% 출{p.count} 미{p.absenceCount}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div>
-            <label htmlFor="digit-combo" className="block text-[10px] sm:text-xs text-gray-600 mb-1.5">중복 숫자</label>
-            <select
-              id="digit-combo"
-              value={selectedDuplicateDigitOption !== null ? String(selectedDuplicateDigitOption) : ''}
-              onChange={(e) => setSelectedDuplicateDigitOption(e.target.value === '' ? null : parseInt(e.target.value, 10))}
-              className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-sm font-medium text-gray-800 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-            >
-              <option value="">자동</option>
-              {duplicateAnalysisForOptions.singleDuplicateDigitRanking.map((item) => (
-                <option key={item.digit} value={item.digit} title={`출현 ${item.count}회, 최근 ${item.absenceCount}회 연속 미출현`}>
-                  {item.digit} (출현 {item.count}회 / 연속 미출현 {item.absenceCount}회)
-                </option>
-              ))}
-            </select>
+
+          {/* 중복 숫자 카드 */}
+          <div className="bg-white rounded-lg border border-purple-100 p-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-gray-600">중복 숫자</span>
+              {selectedDuplicateDigitOptions.length > 0 && (
+                <button onClick={() => setSelectedDuplicateDigitOptions([])} className="text-[10px] text-purple-400 hover:text-purple-600">해제</button>
+              )}
+            </div>
+            <div className="grid grid-cols-5 gap-1">
+              {duplicateAnalysisForOptions.singleDuplicateDigitRanking.map((item) => {
+                const digit = parseInt(item.digit);
+                const isSelected = selectedDuplicateDigitOptions.includes(digit);
+                return (
+                  <button
+                    key={item.digit}
+                    onClick={() => {
+                      setSelectedDuplicateDigitOptions(prev =>
+                        isSelected ? prev.filter(d => d !== digit) : [...prev, digit]
+                      );
+                    }}
+                    className={`flex flex-col items-center gap-0.5 py-0.5 rounded-lg border transition-all ${
+                      isSelected ? 'border-purple-400 bg-purple-100' : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50/60'
+                    }`}
+                  >
+                    <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center transition-all ${
+                      isSelected
+                        ? `bg-gradient-to-br ${digitColor(digit)} text-white shadow ring-1 ring-purple-400`
+                        : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {item.digit}
+                    </span>
+                    <span className="text-[10px] leading-none text-gray-600">출{item.count}</span>
+                    <span className="text-[10px] leading-none text-gray-600">미{item.absenceCount}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
+        </div>
+
+        {/* 합계 옵션 + 뽑기 버튼 */}
+        <div className="flex flex-wrap items-center gap-3 mt-2.5">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={limitToStdDevOption}
+              onChange={(e) => setLimitToStdDevOption(e.target.checked)}
+              className="w-3.5 h-3.5 accent-purple-600"
+            />
+            <span className="text-[11px] sm:text-xs text-gray-700">합계 ±1σ 범위 제한</span>
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={useRecentTrendOption}
+              onChange={(e) => setUseRecentTrendOption(e.target.checked)}
+              className="w-3.5 h-3.5 accent-purple-600"
+            />
+            <span className="text-[11px] sm:text-xs text-gray-700">최근 합계 추이 반영</span>
+          </label>
         </div>
       </div>
 
@@ -790,21 +1031,32 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
       {predictedNumbers && (
         <div className="mt-4 sm:mt-6 p-4 sm:p-6 bg-white rounded-lg border-2 border-purple-300">
           <div className="mb-4">
-            <div className="flex items-center justify-center gap-1.5 sm:gap-2 md:gap-3 mb-2 flex-wrap">
-              {predictedNumbers.map((num, index) => (
-                <div key={index} className="flex flex-col items-center">
-                  <div
-                    className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 bg-gradient-to-br from-purple-500 to-blue-500 text-white rounded-full flex items-center justify-center text-base sm:text-lg md:text-xl lg:text-2xl font-bold shadow-lg animate-pulse"
-                  >
-                    {num}
-                  </div>
-                  {digitProbabilities[index] !== undefined && (
-                    <div className="mt-1 text-[9px] sm:text-[10px] md:text-xs font-semibold text-gray-600">
-                      {digitProbabilities[index].toFixed(1)}%
+            <div className="relative flex items-center justify-center mb-2 min-h-[64px]">
+              <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 flex-wrap justify-center">
+                {predictedNumbers.map((num, index) => (
+                  <div key={index} className="flex flex-col items-center">
+                    <div
+                      className={`w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${digitColor(num)} text-white rounded-full flex items-center justify-center text-base sm:text-lg md:text-xl lg:text-2xl font-bold shadow-lg animate-pulse`}
+                    >
+                      {num}
                     </div>
-                  )}
-                </div>
-              ))}
+                    {digitProbabilities[index] !== undefined && (
+                      <div className="mt-1 text-[9px] sm:text-[10px] md:text-xs font-semibold text-gray-600">
+                        {digitProbabilities[index].toFixed(1)}%
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[52px]"
+                title={isSaving ? '저장 중...' : `${nextRound ? `${nextRound}회차용으로 ` : ''}저장`}
+              >
+                {isSaving ? <RefreshCw className="animate-spin" size={16} /> : <Save size={16} />}
+                <span className="text-[10px] font-semibold leading-none">{isSaving ? '저장중' : '저장'}</span>
+              </button>
             </div>
             
             {/* 직전 회차 정보 및 전이 확률 */}
@@ -935,6 +1187,113 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
               </div>
             </div>
           )}
+
+          {saveMessage && (
+            <div className={`mt-2 text-xs text-center ${saveMessage.type === 'success' ? 'text-green-700' : 'text-red-600'}`}>
+              {saveMessage.text}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 이전번호 히스토리 팝업 */}
+      {isHistoryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setIsHistoryOpen(false)}>
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 팝업 헤더 */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <History className="text-purple-600" size={18} />
+                <h3 className="text-base font-bold text-gray-800">이전 저장 번호</h3>
+              </div>
+              <button
+                onClick={() => setIsHistoryOpen(false)}
+                className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X size={18} className="text-gray-500" />
+              </button>
+            </div>
+
+            {/* 팝업 본문 */}
+            <div className="overflow-y-auto flex-1 px-5 py-4">
+              {isHistoryLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <RefreshCw className="animate-spin text-purple-500" size={24} />
+                </div>
+              ) : historyData.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">저장된 번호가 없습니다.</p>
+              ) : (
+                <div className="space-y-5">
+                  {historyData.map(({ round, predictions, options: roundOpts }) => (
+                    <div key={round}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-bold text-purple-700">{round}회차용</span>
+                        <span className="text-xs text-gray-400">{predictions.length}게임</span>
+                      </div>
+                      {/* 저장된 옵션 뱃지 */}
+                      {roundOpts && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {roundOpts.selectedPatterns.length > 0 && roundOpts.selectedPatterns.map(p => (
+                            <span key={p} className="px-1.5 py-0.5 text-[10px] bg-indigo-100 text-indigo-700 rounded font-mono">{p}</span>
+                          ))}
+                          {roundOpts.selectedDuplicateDigits.length > 0 && roundOpts.selectedDuplicateDigits.map(d => (
+                            <span key={d} className={`w-5 h-5 bg-gradient-to-br ${digitColor(d)} text-white rounded-full flex items-center justify-center text-[10px] font-bold`}>{d}</span>
+                          ))}
+                          {roundOpts.limitToStdDev && (
+                            <span className="px-1.5 py-0.5 text-[10px] bg-green-100 text-green-700 rounded">±1σ</span>
+                          )}
+                          {roundOpts.useRecentTrend && (
+                            <span className="px-1.5 py-0.5 text-[10px] bg-orange-100 text-orange-700 rounded">추이반영</span>
+                          )}
+                        </div>
+                      )}
+                      <div className="space-y-1.5">
+                        {predictions.map((digits, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center gap-2.5 p-2 bg-purple-50 rounded-lg border border-purple-100"
+                          >
+                            <span className="text-xs text-gray-400 w-5 text-right shrink-0">{idx + 1}.</span>
+                            <div className="flex gap-1">
+                              {digits.map((d, i) => (
+                                <span
+                                  key={i}
+                                  className={`w-7 h-7 bg-gradient-to-br ${digitColor(d)} text-white rounded-full flex items-center justify-center text-xs font-bold shadow`}
+                                >
+                                  {d}
+                                </span>
+                              ))}
+                            </div>
+                            <span className="text-xs font-mono text-gray-500 ml-0.5">{digits.join('')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 팝업 푸터 */}
+            {!isHistoryLoading && historyData.length > 0 && (
+              <div className="px-5 py-3 border-t border-gray-200 flex justify-end">
+                <button
+                  onClick={async () => {
+                    await handleDeleteAll();
+                    await handleOpenHistory();
+                  }}
+                  disabled={isSaving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 size={12} />
+                  현재 회차 전체 삭제
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

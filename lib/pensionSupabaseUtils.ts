@@ -117,6 +117,123 @@ function rawRowsToDbRows(rows: unknown[]): { order_num: number; jo: number; d1: 
     .filter((r) => !Number.isNaN(r.order_num));
 }
 
+// ── pension_drawn (뽑은 번호 저장) ──────────────────────────────────────────
+
+/** pension_drawn: 특정 회차의 뽑은 번호 전체 삭제 */
+export async function deletePensionDrawnByRound(round: number): Promise<void> {
+  const { error } = await supabase
+    .from("pension_drawn")
+    .delete()
+    .eq("round", round);
+  if (error) throw error;
+}
+
+/** pension_drawn: 뽑은 번호 여러 게임 한 번에 저장 */
+export async function insertPensionDrawnBatch(
+  round: number,
+  predictions: number[][]
+): Promise<void> {
+  const rows = predictions.map((digits, idx) => {
+    const [d1, d2, d3, d4, d5, d6] = digits;
+    return { round, prediction_index: idx, d1, d2, d3, d4, d5, d6 };
+  });
+  const { error } = await supabase.from("pension_drawn").insert(rows);
+  if (error) throw error;
+}
+
+/** pension_drawn: 전체 뽑은 번호 조회, 회차별 그룹. round 내림차순, prediction_index 오름차순 */
+export async function getAllPensionDrawnGrouped(): Promise<{ round: number; predictions: number[][] }[]> {
+  const { data, error } = await supabase
+    .from("pension_drawn")
+    .select("round, prediction_index, d1, d2, d3, d4, d5, d6")
+    .order("round", { ascending: false })
+    .order("prediction_index", { ascending: true });
+  if (error) throw error;
+  const map = new Map<number, number[][]>();
+  for (const r of data ?? []) {
+    if (!map.has(r.round)) map.set(r.round, []);
+    map.get(r.round)!.push([r.d1, r.d2, r.d3, r.d4, r.d5, r.d6]);
+  }
+  return Array.from(map.entries()).map(([round, predictions]) => ({ round, predictions }));
+}
+
+/** pension_drawn: 특정 회차의 뽑은 번호 조회. prediction_index 오름차순 */
+export async function getPensionDrawnByRound(
+  round: number
+): Promise<{ predictionIndex: number; digits: number[] }[]> {
+  const { data, error } = await supabase
+    .from("pension_drawn")
+    .select("prediction_index, d1, d2, d3, d4, d5, d6")
+    .eq("round", round)
+    .order("prediction_index", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    predictionIndex: r.prediction_index,
+    digits: [r.d1, r.d2, r.d3, r.d4, r.d5, r.d6],
+  }));
+}
+
+// ── pension_round_options (예측 옵션 저장) ──────────────────────────────────
+
+export interface PensionRoundOptions {
+  round: number;
+  selectedPatterns: string[];
+  selectedDuplicateDigits: number[];
+  limitToStdDev: boolean;
+  useRecentTrend: boolean;
+}
+
+/** pension_round_options: 특정 회차 옵션 upsert */
+export async function upsertPensionRoundOptions(opts: PensionRoundOptions): Promise<void> {
+  const { error } = await supabase
+    .from("pension_round_options")
+    .upsert({
+      round: opts.round,
+      selected_patterns: opts.selectedPatterns,
+      selected_duplicate_digits: opts.selectedDuplicateDigits,
+      limit_to_std_dev: opts.limitToStdDev,
+      use_recent_trend: opts.useRecentTrend,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "round" });
+  if (error) throw error;
+}
+
+/** pension_round_options: 특정 회차 옵션 조회 */
+export async function getPensionRoundOptions(round: number): Promise<PensionRoundOptions | null> {
+  const { data, error } = await supabase
+    .from("pension_round_options")
+    .select("round, selected_patterns, selected_duplicate_digits, limit_to_std_dev, use_recent_trend")
+    .eq("round", round)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    round: data.round,
+    selectedPatterns: data.selected_patterns ?? [],
+    selectedDuplicateDigits: data.selected_duplicate_digits ?? [],
+    limitToStdDev: data.limit_to_std_dev ?? false,
+    useRecentTrend: data.use_recent_trend ?? false,
+  };
+}
+
+/** pension_round_options: 전체 회차 옵션 조회 (round 내림차순) */
+export async function getAllPensionRoundOptions(): Promise<PensionRoundOptions[]> {
+  const { data, error } = await supabase
+    .from("pension_round_options")
+    .select("round, selected_patterns, selected_duplicate_digits, limit_to_std_dev, use_recent_trend")
+    .order("round", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(d => ({
+    round: d.round,
+    selectedPatterns: d.selected_patterns ?? [],
+    selectedDuplicateDigits: d.selected_duplicate_digits ?? [],
+    limitToStdDev: d.limit_to_std_dev ?? false,
+    useRecentTrend: d.use_recent_trend ?? false,
+  }));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+
 /** 연금복권 여러 회차 한 번에 저장 (number[][] 14칸 형식). 중복 시 upsert */
 export async function upsertPensionRoundsFromRaw(rows: unknown[]): Promise<number> {
   const dbRows = rawRowsToDbRows(rows);

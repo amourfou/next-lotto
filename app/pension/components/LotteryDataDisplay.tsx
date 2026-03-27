@@ -1,8 +1,9 @@
 'use client';
 
 import { LotteryData, analyzePositionFrequency, analyzeDigitSum, getLotteryDataSummary } from '../lib/dataParser';
-import { Calendar, Hash, TrendingUp, TrendingDown, BarChart3 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { Calendar, Hash, TrendingUp, BarChart3 } from 'lucide-react';
+import InfoTooltip from './InfoTooltip';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
 
 interface LotteryDataDisplayProps {
   lotteryData: LotteryData[];
@@ -86,90 +87,114 @@ export default function LotteryDataDisplay({ lotteryData }: LotteryDataDisplayPr
           </div>
         </div>
 
-        {/* 자릿수 분포 */}
-        <div>
-          <h3 className="text-base sm:text-lg font-semibold text-gray-700 mb-2">자릿수 분포</h3>
-          <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 sm:gap-2">
-            {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(digit => {
-              const count = lotteryData.reduce((sum, data) => {
-                return sum + data.numbers.filter(num => num === digit).length;
-              }, 0);
-              const percentage = (count / (lotteryData.length * 6) * 100).toFixed(1);
-              
-              return (
-                <div key={digit} className="text-center p-1.5 sm:p-2 bg-gray-50 rounded">
-                  <div className="text-sm sm:text-lg font-bold text-gray-800">{digit}</div>
-                  <div className="text-[10px] sm:text-xs text-gray-600">{count}회</div>
-                  <div className="text-[10px] sm:text-xs text-blue-600">{percentage}%</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        {/* 자릿수 × 자리별 빈도 히트맵 */}
+        {(() => {
+          const posFreq = analyzePositionFrequency(lotteryData);
+          const total = lotteryData.length;
+          const digits = [0,1,2,3,4,5,6,7,8,9];
 
-        {/* 각 자리별 빈도 분석 */}
-        <div>
-          <h3 className="text-base sm:text-lg font-semibold text-gray-700 mb-3 sm:mb-4">각 자리별 빈도 분석</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3">
-            {analyzePositionFrequency(lotteryData).map((positionData) => (
-              <div key={positionData.position} className="p-2 sm:p-3 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-200">
-                <div className="text-center mb-1.5 sm:mb-2">
-                  <div className="text-xs sm:text-sm font-semibold text-gray-600">자리</div>
-                  <div className="text-base sm:text-lg font-bold text-gray-800">{positionData.position}번째</div>
-                </div>
-                
-                <div className="space-y-1.5 sm:space-y-2">
-                  {/* 가장 높은 빈도 */}
-                  <div className="p-1.5 sm:p-2 bg-green-50 rounded-lg border border-green-200">
-                    <div className="flex items-center justify-center gap-1 mb-1">
-                      <TrendingUp size={12} className="text-green-600" />
-                      <span className="text-[10px] sm:text-xs text-gray-700">높은</span>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-lg sm:text-xl font-bold text-green-600">{positionData.highestFrequency.digit}</div>
-                      <div className="text-[10px] sm:text-xs text-gray-600">
-                        {positionData.highestFrequency.count}회
-                      </div>
-                      <div className="text-[10px] sm:text-xs text-gray-500">
-                        {positionData.highestFrequency.percentage.toFixed(1)}%
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* 가장 낮은 빈도 */}
-                  <div className="p-1.5 sm:p-2 bg-red-50 rounded-lg border border-red-200">
-                    <div className="flex items-center justify-center gap-1 mb-1">
-                      <TrendingDown size={12} className="text-red-600" />
-                      <span className="text-[10px] sm:text-xs text-gray-700">낮은</span>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-lg sm:text-xl font-bold text-red-600">{positionData.lowestFrequency.digit}</div>
-                      <div className="text-[10px] sm:text-xs text-gray-600">
-                        {positionData.lowestFrequency.count}회
-                      </div>
-                      <div className="text-[10px] sm:text-xs text-gray-500">
-                        {positionData.lowestFrequency.percentage.toFixed(1)}%
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* 빈도 차이 */}
-                  <div className="text-center pt-1 border-t border-gray-300">
-                    <div className="text-[10px] sm:text-xs text-gray-600">
-                      차이: <span className="font-bold text-gray-800">{positionData.highestFrequency.count - positionData.lowestFrequency.count}회</span>
-                    </div>
-                  </div>
-                </div>
+          // 숫자별 텍스트 색상
+          const digitTextColor: Record<number, string> = {
+            0: 'text-gray-500', 1: 'text-red-500', 2: 'text-orange-500',
+            3: 'text-amber-500', 4: 'text-lime-600', 5: 'text-teal-500',
+            6: 'text-blue-500', 7: 'text-indigo-500', 8: 'text-purple-500', 9: 'text-pink-500',
+          };
+
+          // 전체 컬럼 (6자리 합산) 빈도
+          const overallFreq: Record<number, number> = {};
+          digits.forEach(d => {
+            overallFreq[d] = posFreq.reduce((s, p) => s + (p.digitFrequency[d] || 0), 0);
+          });
+          const overallTotal = total * 6;
+
+          // 컬럼별 최대값 (열 상대 강조용)
+          const colMax = posFreq.map(p => Math.max(...digits.map(d => p.digitFrequency[d] || 0)));
+          const overallMax = Math.max(...digits.map(d => overallFreq[d]));
+
+          // 비율에 따른 배경색
+          function cellBg(count: number, max: number) {
+            if (max === 0) return 'bg-gray-50 text-gray-500';
+            const r = count / max;
+            if (r >= 0.90) return 'bg-blue-500 text-white font-bold';
+            if (r >= 0.75) return 'bg-blue-300 text-blue-900 font-semibold';
+            if (r >= 0.55) return 'bg-blue-100 text-blue-800';
+            if (r >= 0.35) return 'bg-blue-50 text-blue-700';
+            return 'bg-gray-50 text-gray-400';
+          }
+
+          return (
+            <div>
+              <h3 className="text-base sm:text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <BarChart3 size={18} />
+                자릿수 × 자리별 빈도 분석
+                <InfoTooltip text="각 자리(1~6번째 열)에서 숫자 0~9(행)가 출현한 비율을 히트맵으로 표시합니다. 파란색이 진할수록 해당 자리에서 자주 등장한 숫자이며, 하단 기대값(10%)과 비교해 편향을 파악할 수 있습니다." width="w-80" />
+              </h3>
+              <p className="text-[10px] sm:text-xs text-gray-400 mb-2">각 자리(열)에서 해당 숫자(행)가 출현한 비율 — 파란색이 진할수록 해당 자리에서 자주 등장</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse min-w-[420px]">
+                  <thead>
+                    <tr>
+                      <th className="p-1.5 bg-gray-100 border border-gray-200 text-gray-600 w-10 text-center">숫자</th>
+                      {posFreq.map(p => (
+                        <th key={p.position} className="p-1.5 bg-purple-50 border border-gray-200 text-purple-700 font-semibold text-center">
+                          {p.position}번째
+                        </th>
+                      ))}
+                      <th className="p-1.5 bg-gray-100 border border-gray-200 text-gray-700 font-semibold text-center">전체</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {digits.map(digit => (
+                      <tr key={digit}>
+                        <td className={`p-1.5 border border-gray-200 text-center font-bold text-sm bg-white ${digitTextColor[digit]}`}>
+                          {digit}
+                        </td>
+                        {posFreq.map((p, pi) => {
+                          const count = p.digitFrequency[digit] || 0;
+                          const pct = (count / total * 100);
+                          const isMax = count === colMax[pi];
+                          const isMin = count === Math.min(...digits.map(d => p.digitFrequency[d] || 0));
+                          return (
+                            <td key={pi} className={`p-1 border border-gray-200 text-center ${cellBg(count, colMax[pi])}`}>
+                              <div className="text-[11px] leading-tight">{pct.toFixed(1)}%</div>
+                              <div className="text-[9px] leading-tight opacity-75">{count}회</div>
+                              {isMax && <div className="text-[8px] leading-none mt-0.5">▲최다</div>}
+                              {isMin && <div className="text-[8px] leading-none mt-0.5">▽최소</div>}
+                            </td>
+                          );
+                        })}
+                        <td className={`p-1 border border-gray-200 text-center ${cellBg(overallFreq[digit], overallMax)}`}>
+                          <div className="text-[11px] leading-tight">{(overallFreq[digit] / overallTotal * 100).toFixed(1)}%</div>
+                          <div className="text-[9px] leading-tight opacity-75">{overallFreq[digit]}회</div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td className="p-1.5 bg-gray-50 border border-gray-200 text-center text-[10px] text-gray-500 font-semibold">기대값</td>
+                      {posFreq.map((_, pi) => (
+                        <td key={pi} className="p-1 bg-gray-50 border border-gray-200 text-center text-[10px] text-gray-500">
+                          {(100 / 10).toFixed(1)}%<br/><span className="text-[9px]">{(total / 10).toFixed(1)}회</span>
+                        </td>
+                      ))}
+                      <td className="p-1 bg-gray-50 border border-gray-200 text-center text-[10px] text-gray-500">
+                        {(100 / 10).toFixed(1)}%<br/><span className="text-[9px]">{(overallTotal / 10).toFixed(1)}회</span>
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+          );
+        })()}
 
         {/* 자릿수 합계 분포 분석 */}
         <div>
           <h3 className="text-base sm:text-lg font-semibold text-gray-700 mb-3 sm:mb-4 flex items-center gap-2">
             <BarChart3 size={18} />
             자릿수 합계 분포 분석
+            <InfoTooltip text="6자리 숫자를 모두 더한 합계(0~54)의 분포입니다. 초록색 막대는 평균 ±1 표준편차(σ) 범위 내, 연한 파랑은 범위 밖을 나타내며, 노란 점선은 표준편차 경계입니다." width="w-80" />
           </h3>
           
           {(() => {
@@ -182,19 +207,22 @@ export default function LotteryDataDisplay({ lotteryData }: LotteryDataDisplayPr
               }))
               .sort((a, b) => a.sum - b.sum);
 
+            const avg = sumAnalysis.statistics.avgSum;
+            const allSums = lotteryData.map(d => d.numbers.reduce((s, n) => s + n, 0));
+            const variance = allSums.reduce((acc, s) => acc + Math.pow(s - avg, 2), 0) / allSums.length;
+            const stdDev = Math.sqrt(variance);
+
             // 커스텀 툴팁
             const CustomTooltip = ({ active, payload }: any) => {
               if (active && payload && payload.length) {
                 const data = payload[0].payload;
+                const inStdDev = Math.abs(data.sum - avg) <= stdDev;
                 return (
                   <div className="bg-white p-2 sm:p-3 border border-gray-200 rounded-lg shadow-lg text-xs sm:text-sm">
                     <p className="font-bold text-gray-800">합계: {data.sum}</p>
-                    <p className="text-blue-600">
-                      개수: <span className="font-bold">{data.count}회</span>
-                    </p>
-                    <p className="text-green-600">
-                      비율: <span className="font-bold">{data.ratio.toFixed(2)}%</span>
-                    </p>
+                    <p className="text-blue-600">개수: <span className="font-bold">{data.count}회</span></p>
+                    <p className="text-green-600">비율: <span className="font-bold">{data.ratio.toFixed(2)}%</span></p>
+                    {inStdDev && <p className="text-emerald-600 font-semibold mt-1">± 1σ 범위 내</p>}
                   </div>
                 );
               }
@@ -204,18 +232,18 @@ export default function LotteryDataDisplay({ lotteryData }: LotteryDataDisplayPr
             return (
               <div className="space-y-3 sm:space-y-4">
                 {/* 통계 요약 */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-3 md:gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3">
                   <div className="text-center p-2 sm:p-3 bg-blue-50 rounded-lg">
                     <div className="text-base sm:text-lg font-bold text-blue-600">{sumAnalysis.statistics.minSum}</div>
-                    <div className="text-xs sm:text-sm text-gray-600">최소 합계</div>
+                    <div className="text-xs sm:text-sm text-gray-600">최소</div>
                   </div>
                   <div className="text-center p-2 sm:p-3 bg-green-50 rounded-lg">
                     <div className="text-base sm:text-lg font-bold text-green-600">{sumAnalysis.statistics.maxSum}</div>
-                    <div className="text-xs sm:text-sm text-gray-600">최대 합계</div>
+                    <div className="text-xs sm:text-sm text-gray-600">최대</div>
                   </div>
                   <div className="text-center p-2 sm:p-3 bg-purple-50 rounded-lg">
-                    <div className="text-base sm:text-lg font-bold text-purple-600">{sumAnalysis.statistics.avgSum.toFixed(1)}</div>
-                    <div className="text-xs sm:text-sm text-gray-600">평균 합계</div>
+                    <div className="text-base sm:text-lg font-bold text-purple-600">{avg.toFixed(1)}</div>
+                    <div className="text-xs sm:text-sm text-gray-600">평균</div>
                   </div>
                   <div className="text-center p-2 sm:p-3 bg-orange-50 rounded-lg">
                     <div className="text-base sm:text-lg font-bold text-orange-600">{sumAnalysis.statistics.medianSum}</div>
@@ -225,7 +253,77 @@ export default function LotteryDataDisplay({ lotteryData }: LotteryDataDisplayPr
                     <div className="text-base sm:text-lg font-bold text-red-600">{sumAnalysis.statistics.modeSum}</div>
                     <div className="text-xs sm:text-sm text-gray-600">최빈값</div>
                   </div>
+                  <div className="text-center p-2 sm:p-3 bg-amber-50 rounded-lg">
+                    <div className="text-base sm:text-lg font-bold text-amber-600">{stdDev.toFixed(1)}</div>
+                    <div className="text-xs sm:text-sm text-gray-600">표준편차 σ</div>
+                  </div>
                 </div>
+
+                {/* 회차별 합계 추이 선 그래프 */}
+                {(() => {
+                  const trendData = [...lotteryData]
+                    .sort((a, b) => a.order - b.order)
+                    .map(d => ({
+                      order: d.order,
+                      sum: d.numbers.reduce((s, n) => s + n, 0),
+                    }));
+                  const avg = sumAnalysis.statistics.avgSum;
+
+                  const TrendTooltip = ({ active, payload }: any) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="bg-white p-2 border border-gray-200 rounded-lg shadow text-xs">
+                          <p className="font-bold text-gray-700">{payload[0].payload.order}회차</p>
+                          <p className="text-indigo-600">합계: <span className="font-bold">{payload[0].value}</span></p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  };
+
+                  return (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
+                        <TrendingUp size={15} className="text-indigo-500" />
+                        회차별 합계 추이
+                        <InfoTooltip text="회차 순서대로 자릿수 합계가 어떻게 변해왔는지 보여주는 시계열 그래프입니다. 노란 점선은 전체 평균으로, 이 선 위아래로 합계가 얼마나 오르내리는지 확인할 수 있습니다." width="w-72" direction="bottom" />
+                      </h4>
+                      <div className="h-48 sm:h-60">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={trendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                            <XAxis
+                              dataKey="order"
+                              stroke="#9ca3af"
+                              fontSize={9}
+                              tickFormatter={(v) => `${v}`}
+                              interval="preserveStartEnd"
+                              label={{ value: '회차', position: 'insideBottom', offset: -4, style: { fontSize: '10px', fill: '#6b7280' } }}
+                            />
+                            <YAxis
+                              stroke="#9ca3af"
+                              fontSize={9}
+                              domain={['auto', 'auto']}
+                              label={{ value: '합계', angle: -90, position: 'insideLeft', offset: 10, style: { fontSize: '10px', fill: '#6b7280' } }}
+                            />
+                            <Tooltip content={<TrendTooltip />} />
+                            <ReferenceLine y={avg} stroke="#f59e0b" strokeDasharray="4 3" strokeWidth={1.5}
+                              label={{ value: `평균 ${avg.toFixed(1)}`, position: 'insideTopRight', style: { fontSize: '10px', fill: '#f59e0b' } }}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="sum"
+                              stroke="#6366f1"
+                              strokeWidth={1.5}
+                              dot={false}
+                              activeDot={{ r: 4, fill: '#6366f1' }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* 합계 분포 막대 차트 */}
                 <div className="h-64 sm:h-80">
@@ -244,14 +342,16 @@ export default function LotteryDataDisplay({ lotteryData }: LotteryDataDisplayPr
                         label={{ value: '회수', angle: -90, position: 'insideLeft', style: { fontSize: '10px' } }}
                       />
                       <Tooltip content={<CustomTooltip />} />
+                      <ReferenceLine x={Math.round(avg - stdDev)} stroke="#f59e0b" strokeDasharray="3 3" strokeWidth={1} />
+                      <ReferenceLine x={Math.round(avg + stdDev)} stroke="#f59e0b" strokeDasharray="3 3" strokeWidth={1} />
                       <Bar dataKey="count" fill="#3b82f6">
                         {chartData.map((entry, index) => {
-                          // 평균값 근처는 다른 색으로 표시
-                          const isNearAverage = Math.abs(entry.sum - sumAnalysis.statistics.avgSum) < 2;
+                          const inStdDev = Math.abs(entry.sum - avg) <= stdDev;
                           return (
-                            <Cell 
-                              key={`cell-${index}`} 
-                              fill={isNearAverage ? '#10b981' : '#3b82f6'} 
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={inStdDev ? '#10b981' : '#93c5fd'}
+                              opacity={inStdDev ? 1 : 0.6}
                             />
                           );
                         })}

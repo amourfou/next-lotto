@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, BarChart3, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import InfoTooltip from './InfoTooltip';
 import { LotteryData } from '../lib/dataParser';
 
 interface TrendChartProps {
@@ -103,6 +104,7 @@ export default function TrendChart({ lotteryData }: TrendChartProps) {
       <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
         <BarChart3 size={24} />
         1회차부터 {chartData[chartData.length - 1]?.order}회차까지 전체 트렌드 ({chartData.length}회차)
+        <InfoTooltip text="전체 회차의 6자리 당첨 번호(combinedNumber)를 시계열 선 그래프로 표시합니다. 확대/축소로 특정 구간을 자세히 볼 수 있으며, 파란 기준선은 평균값입니다." width="w-80" />
       </h2>
       
       <div className="space-y-6">
@@ -295,7 +297,10 @@ export default function TrendChart({ lotteryData }: TrendChartProps) {
 
         {/* 최근 트렌드 분석 */}
         <div className="p-4 bg-gray-50 rounded-lg">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">최근 트렌드 분석</h3>
+          <h3 className="text-lg font-semibold text-gray-700 mb-2 flex items-center">
+            최근 트렌드 분석
+            <InfoTooltip text="가장 최근 5회차의 당첨 번호와 직전 대비 증감량을 보여줍니다. 가장 최근 회차는 파란 배경으로 강조됩니다." width="w-72" />
+          </h3>
           <div className="space-y-2">
             {chartData.slice(-5).map((point, index) => {
               const isLast = index === chartData.slice(-5).length - 1;

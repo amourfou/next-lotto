@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { LotteryData, analyzePositionTransition } from '../lib/dataParser';
 import { ArrowRight, ChevronDown, ChevronUp, BarChart3 } from 'lucide-react';
+import InfoTooltip from './InfoTooltip';
 
 interface PositionTransitionAnalysisProps {
   lotteryData: LotteryData[];
@@ -44,7 +45,10 @@ export default function PositionTransitionAnalysis({ lotteryData }: PositionTran
           <BarChart3 className="text-indigo-600" size={24} />
         </div>
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">각 자리별 전이 패턴 분석</h2>
+          <h2 className="text-2xl font-bold text-gray-800 flex items-center">
+            각 자리별 전이 패턴 분석
+            <InfoTooltip text="이전 회차의 각 자리 숫자가 다음 회차 같은 자리에서 어떤 숫자로 이어지는지 조건부 확률로 분석합니다. 예: 1번째 자리가 3이었을 때 다음 회차 같은 자리에 각 숫자가 나올 확률을 보여줍니다." width="w-80" />
+          </h2>
           <p className="text-sm text-gray-600">
             이전 회차의 각 자리 숫자가 다음 회차의 같은 자리에 어떤 숫자를 만드는지 분석
           </p>
@@ -174,7 +178,10 @@ export default function PositionTransitionAnalysis({ lotteryData }: PositionTran
       {/* 선택된 패턴 요약 */}
       {Object.values(selectedPrevDigit).some(digit => digit !== null) && (
         <div className="mt-6 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-          <h3 className="text-lg font-semibold text-gray-700 mb-3">선택된 패턴 요약</h3>
+          <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center">
+            선택된 패턴 요약
+            <InfoTooltip text="각 자리에서 클릭으로 선택한 이전 숫자를 기준으로, 다음 회차에 등장할 가능성이 높은 상위 3개 숫자와 확률을 요약합니다." width="w-72" />
+          </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {analysis.positionTransitions.map((positionData) => {
               const selectedDigit = selectedPrevDigit[positionData.position];
