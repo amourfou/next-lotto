@@ -83,6 +83,23 @@ type Scope = {
 export function LottoPageMainContent({ scope }: { scope: Record<string, unknown> }) {
   const s = scope as unknown as Scope;
 
+  const [selectedHeatCols, setSelectedHeatCols] = useState<Set<number>>(new Set());
+  const R_max = s.allRounds.length > 0 ? s.allRounds[0].round : 0;
+  const toggleHeatCol = (i: number) => {
+    setSelectedHeatCols(prev => {
+      const n = new Set(prev);
+      const meetingRound = R_max - i;
+      if (n.has(i)) {
+        n.delete(i);
+        if (meetingRound > 0) s.setSelectedPrevRounds(p => { const p2 = new Set(p); p2.delete(meetingRound); return p2; });
+      } else {
+        n.add(i);
+        if (meetingRound > 0) s.setSelectedPrevRounds(p => new Set([...p, meetingRound]));
+      }
+      return n;
+    });
+  };
+
   const [showWinningForm, setShowWinningForm] = useState(false);
   const [nextWinningRound, setNextWinningRound] = useState<number | null>(null);
   const [mainNums, setMainNums] = useState<string[]>(() => Array(6).fill(""));
@@ -155,7 +172,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
 
   return (
     <main className="flex flex-col items-center p-6 pb-12">
-      <div className="w-full max-w-4xl flex border-b border-slate-600/50 mb-6">
+      <div className="w-full max-w-[1400px] flex border-b border-slate-600/50 mb-6">
         {(["draw", "stats"] as const).map((tab) => (
           <button
             key={tab}
@@ -264,16 +281,6 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
           {s.saveDrawnLoading ? "저장 중.." : "DB에 저장"}
         </button>
       </div>}
-
-      {s.mainTab === "draw" && s.saveDrawnMessage && (
-        <p
-          className={`text-center text-sm mt-1 ${
-            s.saveDrawnMessage.type === "ok" ? "text-emerald-400" : "text-red-400"
-          }`}
-        >
-          {s.saveDrawnMessage.text}
-        </p>
-      )}
 
       {s.mainTab === "stats" ? (
         <div className="w-full max-w-2xl mt-4 space-y-4">
@@ -430,7 +437,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
           </div>
         </div>
       ) : (
-        <div className="w-full max-w-5xl flex flex-col items-center">
+        <div className="w-full max-w-[1400px] flex flex-col items-center">
           {s.seedMessage && (
             <p className={`text-center text-sm mb-1 ${s.seedMessage.type === "ok" ? "text-emerald-400" : "text-red-400"}`}>
               {s.seedMessage.text}
@@ -499,10 +506,15 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                   </div>
                 );
               })()}
+              {s.saveDrawnMessage && (
+                <p className={`text-xs mt-1 ${s.saveDrawnMessage.type === "ok" ? "text-emerald-400" : "text-red-400"}`}>
+                  {s.saveDrawnMessage.text}
+                </p>
+              )}
             </div>
 
             {/* 오른쪽: 필터 탭 */}
-            <section className="flex-1 min-w-0">
+            <section className="flex-1 min-w-[320px]">
             <div className="flex flex-wrap border-b border-slate-600/50">
               {s.TABS.map((tab) => (
                 <button
@@ -694,36 +706,36 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                   roundMap.set(r.round, new Set([r.n1, r.n2, r.n3, r.n4, r.n5, r.n6, r.bonus]));
                 }
                 const PREV_COUNT = 20;
+                const bevel = "inset 1px 1px 0 rgba(255,255,255,0.18), inset -1px -1px 0 rgba(0,0,0,0.38)";
 
                 return (
                   <div>
-                    {s.selectedPrevRounds.size > 0 && (
-                      <div className="mb-2 p-2 bg-amber-900/30 rounded-lg border border-amber-700/50 text-xs text-amber-300">
-                        제외 번호: {Array.from(s.selectedPrevRounds).flatMap(r => {
-                          const row = s.allRounds.find(d => d.round === r);
-                          return row ? [row.n1, row.n2, row.n3, row.n4, row.n5, row.n6, row.bonus].filter(Boolean) : [];
-                        }).sort((a, b) => a - b).filter((v, i, a) => a.indexOf(v) === i).join(", ")}
-                      </div>
-                    )}
+                    <div className="mb-2 p-2 bg-amber-900/30 rounded-lg border border-amber-700/50 text-xs text-amber-300">
+                      제외 번호: {s.selectedPrevRounds.size > 0 ? Array.from(s.selectedPrevRounds).flatMap(r => {
+                        const row = s.allRounds.find(d => d.round === r);
+                        return row ? [row.n1, row.n2, row.n3, row.n4, row.n5, row.n6, row.bonus].filter(Boolean) : [];
+                      }).sort((a, b) => a - b).filter((v, i, a) => a.indexOf(v) === i).join(", ") : "없음"}
+                    </div>
                     {s.allRoundsLoading && <p className="text-slate-500 text-xs text-center py-4">불러오는 중..</p>}
                     <div className="flex gap-3 items-start">
                     <div className="overflow-x-auto overflow-y-auto max-h-[504px]">
                       <table className="text-xs border-collapse">
                         <thead className="sticky top-0 bg-slate-700 z-10">
                           <tr className="text-slate-200 text-center">
-                            <th className="pb-1 pr-2 text-left font-medium w-14">회차</th>
+                            <th className="pb-1 pr-2 text-center font-medium w-14">회차</th>
                             {Array.from({ length: PREV_COUNT }, (_, k) => (
-                              <th key={k} className="pb-1 px-1 font-medium w-5 border border-slate-500">{k + 1}</th>
+                              <th
+                                key={k}
+                                onClick={() => toggleHeatCol(k)}
+                                className={`p-0 font-medium w-[25px] min-w-[25px] max-w-[25px] text-center border border-slate-500 cursor-pointer transition-colors ${selectedHeatCols.has(k) ? "bg-amber-500/60 text-white" : "hover:bg-slate-600"}`}
+                              >{k + 1}</th>
                             ))}
                             <th className="pb-1 w-2"></th>
-                            <th className="pb-1 px-1 font-medium border border-slate-600/50">1</th>
-                            <th className="pb-1 px-1 font-medium border border-slate-600/50">2</th>
-                            <th className="pb-1 px-1 font-medium border border-slate-600/50">3</th>
-                            <th className="pb-1 px-1 font-medium border border-slate-600/50">4</th>
-                            <th className="pb-1 px-1 font-medium border border-slate-600/50">5</th>
-                            <th className="pb-1 px-1 font-medium border border-slate-600/50">6</th>
+                            {[1,2,3,4,5,6].map((label, i) => (
+                              <th key={i} className="p-0 font-medium w-[25px] min-w-[25px] max-w-[25px] text-center border border-slate-600/50">{label}</th>
+                            ))}
                             <th className="pb-1 w-2"></th>
-                            <th className="pb-1 px-1 font-medium border border-slate-600/50 text-fuchsia-400">B</th>
+                            <th className="p-0 font-medium w-[25px] min-w-[25px] max-w-[25px] text-center border border-slate-600/50 text-fuchsia-400">B</th>
                             <th
                               className="pb-1 w-8 cursor-pointer text-slate-400 hover:text-amber-400 transition-colors"
                               onClick={() => s.setSelectedPrevRounds(new Set())}
@@ -734,6 +746,8 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                         <tbody>
                           {s.allRounds.map((row) => {
                             const isSelected = s.selectedPrevRounds.has(row.round);
+                            // 만나는 회차: 선택된 컬럼 k_0의 대상 회차 = R_max - k_0
+                            const isMeetingRound = selectedHeatCols.size > 0 && selectedHeatCols.has(R_max - row.round);
                             const nums = [row.n1, row.n2, row.n3, row.n4, row.n5, row.n6];
                             const currentNums = roundMap.get(row.round)!;
                             return (
@@ -746,42 +760,61 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                                 })}
                                 className={`cursor-pointer transition-colors ${isSelected ? "bg-amber-900/20" : "hover:bg-slate-700/40"}`}
                               >
-                                <td className={`pr-2 font-bold ${isSelected ? "text-amber-300" : "text-slate-400"}`}>
-                                  {row.round}회
+                                <td className={`pr-2 text-center font-bold border ${isSelected ? "text-amber-300 border-amber-700/40" : isMeetingRound ? "text-cyan-300 border-cyan-400/50" : "text-slate-400 border-slate-600/40"}`}>
+                                  {row.round}
                                 </td>
                                 {Array.from({ length: PREV_COUNT }, (_, k) => {
                                   const prevNums = roundMap.get(row.round - (k + 1));
-                                  if (!prevNums) return <td key={k} className="w-5 border border-slate-600/40" style={{ backgroundColor: "rgba(51,65,85,0.3)" }} />;
+                                  const heatSelected = selectedHeatCols.has(k);
+                                  // 대각선: 컬럼 k_0 선택 시, (R_max, k_0-1)→(R_max-1, k_0-2)→...→(R_max-(k_0-1), 0) ↙ 방향
+                                  const isDiag = selectedHeatCols.size > 0 && selectedHeatCols.has(R_max - row.round + k + 1);
+                                  const isMeet = isMeetingRound;
+                                  const isCyan = isDiag || isMeet || heatSelected;
+                                  if (!prevNums) return (
+                                    <td
+                                      key={k}
+                                      className={`w-[25px] h-[25px] border ${isDiag ? "border-cyan-400/70" : isCyan ? "border-cyan-400/50" : "border-slate-600/40"}`}
+                                      style={{ backgroundColor: isDiag ? "rgba(34,211,238,0.12)" : isCyan ? "rgba(34,211,238,0.07)" : "rgba(51,65,85,0.3)", boxShadow: isCyan ? bevel : undefined }}
+                                    />
+                                  );
                                   let cnt = 0;
                                   currentNums.forEach(n => { if (prevNums.has(n)) cnt++; });
                                   const alpha = cnt === 0 ? 0 : Math.min(0.2 + (cnt / 7) * 0.8, 1);
-                                  const bg = cnt === 0
-                                    ? "rgba(51,65,85,0.3)"
-                                    : `rgba(245,158,11,${alpha.toFixed(2)})`;
+                                  const bg = isDiag
+                                    ? (cnt === 0 ? "rgba(34,211,238,0.12)" : `rgba(34,211,238,${Math.min(0.2 + (cnt / 7) * 0.8, 1).toFixed(2)})`)
+                                    : isCyan
+                                      ? (cnt === 0 ? "rgba(34,211,238,0.07)" : `rgba(34,211,238,${(0.07 + alpha * 0.3).toFixed(2)})`)
+                                      : cnt === 0
+                                        ? "rgba(51,65,85,0.3)"
+                                        : `rgba(245,158,11,${alpha.toFixed(2)})`;
                                   return (
-                                    <td key={k} className="text-center w-5 px-0 border border-slate-600/40" style={{ backgroundColor: bg }}>
+                                    <td
+                                      key={k}
+                                      className={`text-center w-[25px] h-[25px] px-0 border ${isDiag ? "border-cyan-400/70" : isCyan ? "border-cyan-400/50" : "border-slate-600/40"}`}
+                                      style={{ backgroundColor: bg, boxShadow: isCyan ? bevel : undefined }}
+                                    >
                                       {cnt > 0 && (
-                                        <span className={`font-semibold ${cnt >= 4 ? "text-white" : isSelected ? "text-amber-300" : "text-slate-300"}`}>{cnt}</span>
+                                        <span className={`font-semibold ${isCyan ? "text-cyan-100" : cnt >= 4 ? "text-white" : isSelected ? "text-amber-300" : "text-slate-300"}`}>{cnt}</span>
                                       )}
                                     </td>
                                   );
                                 })}
                                 <td className="w-2" />
                                 {nums.map((n, i) => (
-                                  <td key={i} className="p-0 text-center border border-slate-600/40">
-                                    <span className={`inline-flex items-center justify-center w-7 h-6 text-white font-bold transition-opacity ${numBg(n)} ${isSelected ? "opacity-40" : ""}`}>
+                                  <td key={i} className={`p-0 w-[25px] text-center border ${isMeetingRound ? "border-cyan-400/50" : "border-slate-600/40"}`}>
+                                    <span className={`inline-flex items-center justify-center w-[25px] h-[25px] text-white font-bold transition-opacity ${numBg(n)} ${isSelected ? "opacity-40" : ""}`}>
                                       {n}
                                     </span>
                                   </td>
                                 ))}
                                 <td className="w-2" />
-                                <td className="p-0 text-center border border-slate-600/40">
-                                  <span className={`inline-flex items-center justify-center w-7 h-6 text-white font-bold transition-opacity bg-fuchsia-600 ${isSelected ? "opacity-40" : ""}`}>
+                                <td className={`p-0 w-[25px] text-center border ${isMeetingRound ? "border-cyan-400/50" : "border-slate-600/40"}`}>
+                                  <span className={`inline-flex items-center justify-center w-[25px] h-[25px] text-white font-bold transition-opacity bg-fuchsia-600 ${isSelected ? "opacity-40" : ""}`}>
                                     {row.bonus}
                                   </span>
                                 </td>
-                                <td className="text-right">
-                                  {isSelected && <span className="text-amber-400 font-medium">제외</span>}
+                                <td className={`text-center w-4 border ${isMeetingRound ? "border-cyan-400/50" : "border-slate-600/40"}`}>
+                                  {isSelected && <span className="text-amber-400">✕</span>}
                                 </td>
                               </tr>
                             );
@@ -806,13 +839,15 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                         return total > 0 ? nonZero / total : 0;
                       });
                       const maxRatio = Math.max(...stats);
+                      const sorted = [...stats].sort((a, b) => b - a);
                       return (
                         <div className="shrink-0 overflow-y-auto max-h-[504px]">
                           <div className="sticky top-0 bg-slate-700 text-slate-200 text-xs font-medium text-center pb-1 mb-0">비율</div>
                           {stats.map((ratio, k) => {
                             const pct = (ratio * 100).toFixed(1);
                             const barW = maxRatio > 0 ? (ratio / maxRatio) * 48 : 0;
-                            const alpha = 0.2 + ratio * 0.8;
+                            const rank = sorted.indexOf(ratio);
+                            const alpha = 0.15 + ((PREV_COUNT - 1 - rank) / (PREV_COUNT - 1)) * 0.85;
                             return (
                               <div key={k} className="flex items-center gap-1 border border-slate-600/40 px-1" style={{ backgroundColor: `rgba(245,158,11,${alpha.toFixed(2)})` }}>
                                 <span className="text-xs text-slate-200 w-4 shrink-0">{k + 1}</span>
