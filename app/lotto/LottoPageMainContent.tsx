@@ -94,7 +94,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
         if (meetingRound > 0) s.setSelectedPrevRounds(p => { const p2 = new Set(p); p2.delete(meetingRound); return p2; });
       } else {
         n.add(i);
-        if (meetingRound > 0) s.setSelectedPrevRounds(p => new Set([...p, meetingRound]));
+        if (meetingRound > 0) s.setSelectedPrevRounds(p => { const s2 = new Set(Array.from(p)); s2.add(meetingRound); return s2; });
       }
       return n;
     });
