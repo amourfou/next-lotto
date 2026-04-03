@@ -23,16 +23,13 @@ export type SumHistogramChartProps = {
 
 export function SumHistogramChart({ histogram, avg, sumMin, sumMax, setSumMin, setSumMax, showFilter, rounds }: SumHistogramChartProps) {
   const [chartTab, setChartTab] = useState<"dist" | "trend">("dist");
-  const [distSpacing, setDistSpacing] = useState(2);
-  const [distContainerW, setDistContainerW] = useState(600);
   const [spacing, setSpacing] = useState(2);
   const [viewScroll, setViewScroll] = useState(0);
   const [containerW, setContainerW] = useState(600);
-  const distScrollRef = useRef<HTMLDivElement>(null);
-  const distScrollbarRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollbarRef = useRef<HTMLDivElement>(null);
-  const { xMin, xMax, height, padding } = SUM_CHART;
+  const { xMin, xMax, width: distWidth, height, padding } = SUM_CHART;
+  const chartWidth = distWidth - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
   const { maxCount, std } = useMemo(() => {
@@ -52,31 +49,28 @@ export function SumHistogramChart({ histogram, avg, sumMin, sumMax, setSumMin, s
     return { maxCount: maxCount || 1, std };
   }, [histogram, avg]);
 
-  // 분포 그래프: px 단위 간격, 컨테이너보다 작아지지 않도록 min 보장
-  const distRawW = (xMax - xMin + 1) * distSpacing;
-  const distChartW = Math.max(distContainerW, distRawW);
-  const distXS = (v: number) => (v - xMin) * distSpacing;
-  const distBarW = distSpacing * 0.88;
+  // 분포 그래프: viewBox 기반 고정 표시
+  const xScale = (v: number) => padding.left + ((v - xMin) / (xMax - xMin)) * chartWidth;
   const yScale = (v: number) => padding.top + chartHeight - (v / maxCount) * chartHeight;
 
   const bars = useMemo(() => {
-    const bw = distSpacing * 0.88;
+    const bw = (chartWidth / (xMax - xMin + 1)) * 0.88;
     const out: SumBarItem[] = [];
     for (let sum = xMin; sum <= xMax; sum++) {
       const count = histogram[sum] ?? 0;
-      const x = (sum - xMin) * distSpacing - bw / 2;
+      const x = padding.left + ((sum - xMin) / (xMax - xMin)) * chartWidth - bw / 2;
       const w = Math.max(0.5, bw);
       const h = count > 0 ? Math.max(2, (count / maxCount) * chartHeight) : 0;
       out.push({ sum, count, x, w, h });
     }
     return out;
-  }, [histogram, maxCount, chartHeight, distSpacing]);
+  }, [histogram, maxCount, chartHeight, chartWidth]);
 
-  const avgX = distXS(avg);
-  const avgM1X = distXS(Math.max(xMin, avg - std));
-  const avgP1X = distXS(Math.min(xMax, avg + std));
-  const distMinX = sumMin != null ? distXS(sumMin) : null;
-  const distMaxX = sumMax != null ? distXS(sumMax) : null;
+  const avgX = xScale(avg);
+  const avgM1X = xScale(Math.max(xMin, avg - std));
+  const avgP1X = xScale(Math.min(xMax, avg + std));
+  const distMinX = sumMin != null ? xScale(sumMin) : null;
+  const distMaxX = sumMax != null ? xScale(sumMax) : null;
 
   // 정적: x축 위치, SVG 너비 (spacing/rounds 변경 시만 재계산)
   const trendStatic = useMemo(() => {
@@ -127,20 +121,6 @@ export function SumHistogramChart({ histogram, avg, sumMin, sumMax, setSumMin, s
     const filterMaxY = sumMax != null ? yS(Math.min(tMax, sumMax)) : null;
     return { points, polyline, avgY, avgM1Y, avgP1Y, filterMinY, filterMaxY, yTicks, svgW, tH };
   }, [trendStatic, viewScroll, containerW, avg, std, sumMin, sumMax, spacing]);
-
-  // 분포 그래프 스크롤바 동기화 + 컨테이너 너비 측정
-  useEffect(() => {
-    if (chartTab !== "dist") return;
-    const bar = distScrollbarRef.current;
-    const chart = distScrollRef.current;
-    if (!bar || !chart) return;
-    setDistContainerW(bar.clientWidth);
-    const sync = () => { chart.scrollLeft = bar.scrollLeft; };
-    bar.addEventListener("scroll", sync);
-    const ro = new ResizeObserver(() => setDistContainerW(bar.clientWidth));
-    ro.observe(bar);
-    return () => { bar.removeEventListener("scroll", sync); ro.disconnect(); };
-  }, [chartTab]);
 
   // 추이 그래프 스크롤바 동기화 + viewScroll/containerW 추적
   useEffect(() => {
@@ -206,7 +186,7 @@ export function SumHistogramChart({ histogram, avg, sumMin, sumMax, setSumMin, s
               </g>
             ))}
             {[21, 84, 147, 210, 255].map((s) => (
-              <text key={s} x={avgX_dist(s)} y={height - 8} textAnchor="middle" fontSize="10" fill="currentColor" opacity="0.8">{s}</text>
+              <text key={s} x={xScale(s)} y={height - 8} textAnchor="middle" fontSize="10" fill="currentColor" opacity="0.8">{s}</text>
             ))}
             {showFilter && distMinX != null && distMaxX != null && distMinX < distMaxX && (
               <rect x={distMinX} y={padding.top} width={distMaxX - distMinX} height={chartHeight} fill="rgb(59, 130, 246)" fillOpacity="0.12" />
