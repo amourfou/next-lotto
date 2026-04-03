@@ -72,6 +72,7 @@ type Scope = {
   SumHistogramChart: React.ComponentType<{
     histogram: Record<number, number>;
     avg: number;
+    rounds?: { round: number; sum: number }[];
     sumMin?: number | null;
     sumMax?: number | null;
     setSumMin?: (v: number | null) => void;
@@ -645,7 +646,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                 </div>
               )}
               {s.activeTab === "sum" && (
-                <div className="space-y-4 max-w-2xl mx-auto">
+                <div className="space-y-4 w-full">
                   <h2 className="text-slate-400 font-semibold text-sm text-center mb-3">
                     합계 제한 (6개 번호 합, 비워두면 제한 없음)
                   </h2>
@@ -653,6 +654,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                     <s.SumHistogramChart
                       histogram={s.analysis.sumPattern.histogram}
                       avg={s.analysis.sumPattern.avg}
+                      rounds={s.allRounds.map(r => ({ round: r.round, sum: r.n1 + r.n2 + r.n3 + r.n4 + r.n5 + r.n6 }))}
                       sumMin={s.sumMin}
                       sumMax={s.sumMax}
                       setSumMin={s.setSumMin}

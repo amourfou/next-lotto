@@ -135,7 +135,7 @@ const GROUP_BALL_STYLES: Record<
   45: { bg: "bg-rose-500/25", text: "text-rose-300", border: "border-rose-500/50" },
 };
 
-function AnalysisResultView({ analysis }: { analysis: AnalysisResult }) {
+function AnalysisResultView({ analysis, rounds }: { analysis: AnalysisResult; rounds?: { round: number; sum: number }[] }) {
   const sumEntries = analysis.sumPattern?.histogram
     ? Object.entries(analysis.sumPattern.histogram)
         .sort((a, b) => b[1] - a[1])
@@ -210,6 +210,7 @@ function AnalysisResultView({ analysis }: { analysis: AnalysisResult }) {
           <SumHistogramChart
             histogram={analysis.sumPattern.histogram}
             avg={analysis.sumPattern.avg}
+            rounds={rounds}
             showFilter={false}
           />
           {sumEntries.length > 0 && (
@@ -1004,7 +1005,7 @@ export function LottoPageBody() {
     games, setGames, gameCount, setGameCount, isDrawing, filterStates, currentCategory,
     groupCounts, groupEnabled, groupAtMost, seedLoading, seedMessage, activeTab, setActiveTab: (tab: typeof activeTab) => {
       setActiveTab(tab);
-      if (tab === "prevRound" && allRounds.length === 0) {
+      if ((tab === "prevRound" || tab === "sum") && allRounds.length === 0) {
         setAllRoundsLoading(true);
         (async () => {
           try {
@@ -1033,7 +1034,13 @@ export function LottoPageBody() {
     setSumMin, setSumMax, setMaxConsecutivePairs,
     fetchExclusionData,
     prevRoundsOpen, setPrevRoundsOpen, selectedPrevRounds, setSelectedPrevRounds, prevRoundExclude,
-    MIN_GAMES, MAX_GAMES, SUM_RANGE, PICK_COUNT, AnalysisResultView, SumHistogramChart,
+    MIN_GAMES, MAX_GAMES, SUM_RANGE, PICK_COUNT,
+    AnalysisResultView: (props: { analysis: AnalysisResult }) =>
+      React.createElement(AnalysisResultView, {
+        ...props,
+        rounds: allRounds.map(r => ({ round: r.round, sum: r.n1 + r.n2 + r.n3 + r.n4 + r.n5 + r.n6 })),
+      }),
+    SumHistogramChart,
   };
   return React.createElement(LottoPageMainContent, { scope });
 }
