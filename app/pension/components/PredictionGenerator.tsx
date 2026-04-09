@@ -901,27 +901,32 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
               )}
             </div>
             <div className="grid grid-cols-5 gap-1">
-              {positionPatternAnalysis.patternDetails.map((p) => {
-                const isChecked = selectedPatternOptions.includes(p.pattern);
-                return (
-                  <button
-                    key={p.pattern}
-                    onClick={() => setSelectedPatternOptions(prev =>
-                      isChecked ? prev.filter(x => x !== p.pattern) : [...prev, p.pattern]
-                    )}
-                    className={`flex flex-col items-center gap-0.5 py-1 px-0.5 rounded-lg border transition-all ${
-                      isChecked ? 'border-purple-400 bg-purple-100' : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50/60'
-                    }`}
-                  >
-                    <div className={`font-mono text-xs leading-tight ${isChecked ? 'text-purple-700 font-bold' : 'text-gray-700'}`}>
-                      {p.pattern}
-                    </div>
-                    <div className="text-[10px] text-gray-600 leading-tight text-center">
-                      {p.percentage.toFixed(1)}% 출{p.count} 미{p.absenceCount}
-                    </div>
-                  </button>
-                );
-              })}
+              {(() => {
+                const maxAbs = Math.max(...positionPatternAnalysis.patternDetails.map(p => p.absenceCount), 1);
+                return positionPatternAnalysis.patternDetails.map((p) => {
+                  const isChecked = selectedPatternOptions.includes(p.pattern);
+                  const absAlpha = (p.absenceCount / maxAbs) * 0.45;
+                  return (
+                    <button
+                      key={p.pattern}
+                      onClick={() => setSelectedPatternOptions(prev =>
+                        isChecked ? prev.filter(x => x !== p.pattern) : [...prev, p.pattern]
+                      )}
+                      className={`flex flex-col items-center gap-0.5 py-1 px-0.5 rounded-lg border transition-all ${
+                        isChecked ? 'border-purple-400 bg-purple-100' : 'border-gray-200 hover:border-purple-300'
+                      }`}
+                      style={!isChecked ? { backgroundColor: `rgba(245, 158, 11, ${absAlpha})` } : undefined}
+                    >
+                      <div className={`font-mono text-xs leading-tight ${isChecked ? 'text-purple-700 font-bold' : 'text-gray-700'}`}>
+                        {p.pattern}
+                      </div>
+                      <div className="text-[10px] text-gray-600 leading-tight text-center">
+                        {p.percentage.toFixed(1)}% 출{p.count} 미{p.absenceCount}
+                      </div>
+                    </button>
+                  );
+                });
+              })()}
             </div>
           </div>
 
@@ -934,33 +939,38 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
               )}
             </div>
             <div className="grid grid-cols-5 gap-1">
-              {duplicateAnalysisForOptions.singleDuplicateDigitRanking.map((item) => {
-                const digit = parseInt(item.digit);
-                const isSelected = selectedDuplicateDigitOptions.includes(digit);
-                return (
-                  <button
-                    key={item.digit}
-                    onClick={() => {
-                      setSelectedDuplicateDigitOptions(prev =>
-                        isSelected ? prev.filter(d => d !== digit) : [...prev, digit]
-                      );
-                    }}
-                    className={`flex flex-col items-center gap-0.5 py-0.5 rounded-lg border transition-all ${
-                      isSelected ? 'border-purple-400 bg-purple-100' : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50/60'
-                    }`}
-                  >
-                    <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center transition-all ${
-                      isSelected
-                        ? `bg-gradient-to-br ${digitColor(digit)} text-white shadow ring-1 ring-purple-400`
-                        : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {item.digit}
-                    </span>
-                    <span className="text-[10px] leading-none text-gray-600">출{item.count}</span>
-                    <span className="text-[10px] leading-none text-gray-600">미{item.absenceCount}</span>
-                  </button>
-                );
-              })}
+              {(() => {
+                const maxAbs = Math.max(...duplicateAnalysisForOptions.singleDuplicateDigitRanking.map(i => i.absenceCount), 1);
+                return duplicateAnalysisForOptions.singleDuplicateDigitRanking.map((item) => {
+                  const digit = parseInt(item.digit);
+                  const isSelected = selectedDuplicateDigitOptions.includes(digit);
+                  const absAlpha = (item.absenceCount / maxAbs) * 0.45;
+                  return (
+                    <button
+                      key={item.digit}
+                      onClick={() => {
+                        setSelectedDuplicateDigitOptions(prev =>
+                          isSelected ? prev.filter(d => d !== digit) : [...prev, digit]
+                        );
+                      }}
+                      className={`flex flex-col items-center gap-0.5 py-0.5 rounded-lg border transition-all ${
+                        isSelected ? 'border-purple-400 bg-purple-100' : 'border-gray-200 hover:border-purple-300'
+                      }`}
+                      style={!isSelected ? { backgroundColor: `rgba(245, 158, 11, ${absAlpha})` } : undefined}
+                    >
+                      <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center transition-all ${
+                        isSelected
+                          ? `bg-gradient-to-br ${digitColor(digit)} text-white shadow ring-1 ring-purple-400`
+                          : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {item.digit}
+                      </span>
+                      <span className="text-[10px] leading-none text-gray-600">출{item.count}</span>
+                      <span className="text-[10px] leading-none text-gray-600">미{item.absenceCount}</span>
+                    </button>
+                  );
+                });
+              })()}
             </div>
           </div>
         </div>
