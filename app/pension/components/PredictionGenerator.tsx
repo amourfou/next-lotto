@@ -499,7 +499,7 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
   const [selectedDuplicateDigitOptions, setSelectedDuplicateDigitOptions] = useState<number[]>([]);
   const [limitToStdDevOption, setLimitToStdDevOption] = useState(false);
   const [useRecentTrendOption, setUseRecentTrendOption] = useState(false);
-  const [gameRecoSeed, setGameRecoSeed] = useState(0);
+  const [gameRecommendations, setGameRecommendations] = useState<{ digit: { key: number; label: string; signalScore: number; overdueRatio: number; frequency: number; absenceCount: number; avgInterval: number; count: number }; pattern: string | null }[]>([]);
 
   // ── 저장 관련 state ──────────────────────────────────────────────────────
   const [savedPredictions, setSavedPredictions] = useState<number[][]>([]);
@@ -892,26 +892,31 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
     return { patterns, digits };
   })();
 
-  // 게임 추천: top4 digit × top4 pattern 랜덤 조합 (gameRecoSeed 변경 시에만 셔플)
-  // digit과 pattern은 000000~999999 균등분포에서 완전 독립이므로 독립 신호를 별도 계산
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const gameRecommendations = useMemo(() => {
-    const top4Digits = signalStrengths.digits.slice(0, 4);
-    const top4Patterns = signalStrengths.patterns.slice(0, 4);
-
+  const shuffleGameRecommendations = useCallback((
+    digits: typeof signalStrengths.digits,
+    patterns: typeof signalStrengths.patterns
+  ) => {
+    const top4Digits = digits.slice(0, 4);
+    const top4Patterns = patterns.slice(0, 4);
     const patternIndices = [0, 1, 2, 3];
     for (let i = patternIndices.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [patternIndices[i], patternIndices[j]] = [patternIndices[j], patternIndices[i]];
     }
-
-    return top4Digits.map((d, i) => ({
+    setGameRecommendations(top4Digits.map((d, i) => ({
       digit: d,
       pattern: top4Patterns[patternIndices[i]]?.key as string ?? null,
-    }));
-  // gameRecoSeed 변경 시에만 재계산
+    })));
+  }, []);
+
+  // 데이터 로드 시 최초 1회만 초기화
+  useEffect(() => {
+    if (signalStrengths.digits.length > 0 && gameRecommendations.length === 0) {
+      shuffleGameRecommendations(signalStrengths.digits, signalStrengths.patterns);
+    }
+  // lotteryData가 바뀔 때만 재초기화
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameRecoSeed, signalStrengths.digits, signalStrengths.patterns]);
+  }, [lotteryData]);
 
   return (
     <div className="bg-gradient-to-r from-purple-50 via-blue-50 to-purple-50 rounded-lg shadow-lg p-4 sm:p-6 mb-4 sm:mb-6 lg:mb-8 border-2 border-purple-200">
@@ -1064,7 +1069,7 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
             <span className="text-xs sm:text-sm font-semibold text-gray-700 shrink-0">현재 가장 강한 신호</span>
             <div className="flex items-center gap-1.5">
               <button
-                onClick={() => setGameRecoSeed(s => s + 1)}
+                onClick={() => shuffleGameRecommendations(signalStrengths.digits, signalStrengths.patterns)}
                 className="p-1 text-gray-400 hover:text-amber-600 transition-colors"
                 title="조합 다시 섞기"
               >
