@@ -1,7 +1,7 @@
 'use client';
 
-import React from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import React, { useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Repeat, BarChart3, PieChart as PieChartIcon, Trophy, TrendingUp, Layers, Hash, Link } from 'lucide-react';
 import InfoTooltip from './InfoTooltip';
 import { LotteryData, analyzeDuplicatePatterns, DuplicatePatternAnalysisResult, analyzeDuplicatePositionPatterns, analyzeDuplicateFrequency, analyzeConsecutivePatterns, analyzeRangeDistribution, analyzeEvenOddPatterns, analyzeDigitPairPatterns } from '../lib/dataParser';
@@ -13,11 +13,28 @@ interface DuplicatePatternAnalysisProps {
 const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'];
 
 export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatternAnalysisProps) {
+  const [selectedDigit, setSelectedDigit] = useState<number | null>(null);
+
   if (lotteryData.length === 0) {
     return null;
   }
 
   const analysis = analyzeDuplicatePatterns(lotteryData);
+
+  // 이론값 (000000~999999 균등분포 기준)
+  // 계산 근거:
+  //   중복 없음: P(6,10)/10^6 = 151200/1000000 = 15.12%
+  //   1개 중복:  C(10,1)×C(6,2)×P(9,4)/10^6 = 453600/1000000 = 45.36%
+  //   2개 중복:  (2×2+싱글2: 226800) + (2×3+싱글1: 43200) + (2×4: 1350) = 271350 → 27.14%
+  //   기타:      나머지 = 12.39%  (단, 코드 기준: 3종 이상 중복 OR 1종이 3회↑ OR 2종 모두 3회↑)
+  const THEORETICAL_RATIO: Record<number, number> = {
+    0:  15.12,   // 중복 없음
+    1:  45.36,   // 1개 중복
+    2:  27.14,   // 2개 중복
+    [-1 as unknown as number]: 12.39, // 기타
+  };
+  // TypeScript key 문제 회피용
+  const getTheoretical = (key: number) => key === -1 ? 12.39 : (THEORETICAL_RATIO[key] ?? 0);
 
   // 중복 개수별 분포 차트 데이터
   const distributionData = Object.entries(analysis.duplicateCountDistribution)
@@ -25,18 +42,22 @@ export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatte
       const countNum = parseInt(count);
       let name: string;
       if (countNum === -1) {
-        name = '기타 (3개 이상 중복)';
+        name = '기타';
       } else if (countNum === 0) {
         name = '중복 없음';
       } else {
         name = `${countNum}개 중복`;
       }
+      const actualRatio = analysis.duplicateCountRatio[countNum] * 100;
+      const theoreticalRatio = getTheoretical(countNum);
       return {
         name,
-        count: countNum === -1 ? 999 : countNum, // 기타는 정렬 시 마지막에 오도록
+        count: countNum === -1 ? 999 : countNum,
         originalCount: countNum,
         value,
-        ratio: analysis.duplicateCountRatio[countNum] * 100
+        ratio: actualRatio,
+        theoreticalRatio,
+        deviation: actualRatio - theoreticalRatio,
       };
     })
     .sort((a, b) => a.count - b.count);
@@ -85,115 +106,310 @@ export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatte
             <div key={item.count} className="text-center p-4 bg-blue-50 rounded-lg">
               <div className="text-2xl font-bold text-blue-600">{item.value}</div>
               <div className="text-sm text-gray-600">{item.name}</div>
-              <div className="text-xs text-gray-500 mt-1">{item.ratio.toFixed(1)}%</div>
+              <div className="text-xs text-gray-500 mt-0.5">실제 {item.ratio.toFixed(1)}%</div>
+              <div className="text-xs text-gray-400">이론 {item.theoreticalRatio.toFixed(2)}%</div>
+              <div className={`text-xs font-semibold mt-0.5 ${item.deviation >= 0 ? 'text-red-500' : 'text-blue-500'}`}>
+                {item.deviation >= 0 ? '+' : ''}{item.deviation.toFixed(2)}pp
+              </div>
             </div>
           ))}
         </div>
 
-        {/* 중복 개수별 분포 막대 차트 */}
+        {/* 이중 도넛 차트: 안쪽=이론, 바깥쪽=실제 */}
         <div>
-          <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
-            <BarChart3 size={20} />
-            중복 개수별 분포
-            <InfoTooltip text="한 회차에서 중복 숫자가 0개·1종류·2종류 이상 등장한 횟수를 나타냅니다. '중복 없음'이면 6자리 모두 다른 숫자입니다." width="w-72" />
-          </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={distributionData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis 
-                dataKey="name" 
-                stroke="#374151"
-                fontSize={12}
-              />
-              <YAxis 
-                stroke="#374151"
-                fontSize={12}
-              />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="value" fill="#3b82f6" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* 중복 개수별 비율 파이 차트 */}
-        <div>
-          <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-gray-700 mb-1 flex items-center gap-2">
             <PieChartIcon size={20} />
-            중복 개수별 비율
+            중복 개수별 비율 — 이론(안) vs 실제(밖)
+            <InfoTooltip text="안쪽 링=이론값(균등분포), 바깥쪽 링=실제 비율. 같은 색 세그먼트 크기 차이가 괴리입니다." width="w-72" />
           </h3>
+          <p className="text-xs text-gray-400 mb-2">바깥 링이 안쪽보다 크면 이론 초과(↑), 작으면 이론 미달(↓)</p>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
+              {/* 안쪽 링: 이론값 (legendType="none" 으로 legend 중복 방지) */}
               <Pie
-                data={pieData}
+                data={distributionData.map(d => ({ name: d.name, value: d.theoreticalRatio }))}
                 cx="50%"
                 cy="50%"
-                labelLine={false}
-                label={({ name, ratio }) => `${name}: ${ratio.toFixed(1)}%`}
-                outerRadius={100}
-                fill="#8884d8"
+                innerRadius={55}
+                outerRadius={88}
                 dataKey="value"
+                strokeWidth={1}
+                legendType="none"
               >
-                {pieData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                {distributionData.map((_, index) => (
+                  <Cell key={`inner-${index}`} fill={COLORS[index % COLORS.length]} opacity={0.3} />
                 ))}
               </Pie>
-              <Tooltip content={<CustomTooltip />} />
-              <Legend />
+              {/* 바깥 링: 실제값 */}
+              <Pie
+                data={distributionData.map(d => ({ name: d.name, value: d.ratio, deviation: d.deviation, count: d.value }))}
+                cx="50%"
+                cy="50%"
+                innerRadius={92}
+                outerRadius={122}
+                labelLine={false}
+                label={({ cx, cy, midAngle, outerRadius, name, value, deviation }) => {
+                  const RADIAN = Math.PI / 180;
+                  const r = (outerRadius as number) + 18;
+                  const x = (cx as number) + r * Math.cos(-midAngle * RADIAN);
+                  const y = (cy as number) + r * Math.sin(-midAngle * RADIAN);
+                  const dev = deviation as number;
+                  return (
+                    <text x={x} y={y} textAnchor={x > (cx as number) ? 'start' : 'end'} dominantBaseline="central" fontSize={11} fill="#374151">
+                      {`${name}: ${(value as number).toFixed(1)}%`}
+                      <tspan fill={dev >= 0 ? '#ef4444' : '#3b82f6'}>{` (${dev >= 0 ? '+' : ''}${dev.toFixed(1)}pp)`}</tspan>
+                    </text>
+                  );
+                }}
+                dataKey="value"
+                strokeWidth={1}
+              >
+                {distributionData.map((_, index) => (
+                  <Cell key={`outer-${index}`} fill={COLORS[index % COLORS.length]} opacity={0.9} />
+                ))}
+              </Pie>
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const name = payload[0].payload?.name;
+                  const dist = distributionData.find(x => x.name === name);
+                  if (!dist) return null;
+                  return (
+                    <div className="bg-white p-2 border border-gray-200 rounded shadow text-xs">
+                      <p className="font-bold mb-1">{dist.name}</p>
+                      <p className="text-gray-400">이론: {dist.theoreticalRatio.toFixed(2)}%</p>
+                      <p className="text-blue-600">실제: {dist.ratio.toFixed(2)}% ({dist.value}회)</p>
+                      <p className={dist.deviation >= 0 ? 'text-red-500' : 'text-blue-500'}>
+                        괴리: {dist.deviation >= 0 ? '+' : ''}{dist.deviation.toFixed(2)}pp
+                      </p>
+                    </div>
+                  );
+                }}
+              />
             </PieChart>
           </ResponsiveContainer>
+          {/* 커스텀 범례 */}
+          <div className="flex flex-wrap justify-center gap-x-5 gap-y-1 mt-1">
+            {distributionData.map((d, i) => (
+              <div key={d.name} className="flex items-center gap-1.5 text-xs text-gray-600">
+                <span className="w-3 h-3 rounded-sm inline-block shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                <span>{d.name}</span>
+                <span className="text-gray-400">이론 {d.theoreticalRatio.toFixed(1)}%</span>
+                <span className="text-gray-700">/ 실제 {d.ratio.toFixed(1)}%</span>
+                <span className={`font-semibold ${d.deviation >= 0 ? 'text-red-500' : 'text-blue-500'}`}>
+                  ({d.deviation >= 0 ? '+' : ''}{d.deviation.toFixed(1)}pp)
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* 1개 중복 숫자별 순위 */}
-        {topDuplicates.length > 0 && (
-          <div>
-            <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
-              <Trophy size={20} />
-              1개 중복 숫자별 빈도 순위
-              <InfoTooltip text="정확히 1가지 숫자가 2번 등장한 회차에서, 어떤 숫자가 중복되었는지 빈도 순위입니다. 연속 미출현 수가 클수록 최근 당첨에서 오래 나오지 않은 숫자입니다." width="w-80" />
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-2">
-              {topDuplicates.map((item, index) => (
-                <div
-                  key={item.digit}
-                  className={`p-3 rounded-lg text-center ${
-                    index === 0
-                      ? 'bg-yellow-50 border-2 border-yellow-400'
-                      : index < 3
-                      ? 'bg-gray-50 border border-gray-300'
-                      : 'bg-white border border-gray-200'
-                  }`}
-                >
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white mx-auto mb-2 ${
-                      index === 0
-                        ? 'bg-yellow-500'
-                        : index === 1
-                        ? 'bg-gray-400'
-                        : index === 2
-                        ? 'bg-orange-400'
-                        : 'bg-blue-400'
+        {/* 1개 중복 숫자별 순위 + 이론값 vs 실제 비교 */}
+        {topDuplicates.length > 0 && (() => {
+          // 이론값: 1개 중복 회차에서 각 숫자는 균등하게 1/10 확률 (000000~999999 균등분포)
+          const totalSinglePairRounds = analysis.singleDuplicateDigitRanking.reduce((sum, r) => sum + r.count, 0);
+          const theoreticalCount = totalSinglePairRounds / 10;
+
+          // 선택된 digit의 패턴별 분포 계산
+          const digitPatternData = (() => {
+            if (selectedDigit === null) return null;
+            const dKey = String(selectedDigit);
+            const patternCount: Record<string, number> = {};
+            // 15가지 모든 패턴 초기화
+            const ALL_PATTERNS: string[] = [];
+            for (let i = 0; i < 6; i++) {
+              for (let j = i + 1; j < 6; j++) {
+                const p = ['X','X','X','X','X','X'];
+                p[i] = 'O'; p[j] = 'O';
+                ALL_PATTERNS.push(p.join(''));
+              }
+            }
+            ALL_PATTERNS.forEach(p => { patternCount[p] = 0; });
+            lotteryData.forEach(data => {
+              const ds = data.numbers.map(n => n.toString());
+              const cnt: Record<string, number> = {};
+              ds.forEach(d => { cnt[d] = (cnt[d] || 0) + 1; });
+              const dups = Object.entries(cnt).filter(([, c]) => c >= 2);
+              if (dups.length !== 1 || dups[0][0] !== dKey || dups[0][1] !== 2) return;
+              const pattern = ds.map(d => d === dKey ? 'O' : 'X').join('');
+              patternCount[pattern] = (patternCount[pattern] || 0) + 1;
+            });
+            const digitTotal = Object.values(patternCount).reduce((s, c) => s + c, 0);
+            const theoreticalPerPattern = digitTotal / 15;
+            return ALL_PATTERNS.map(pattern => {
+              const actual = patternCount[pattern] ?? 0;
+              const deviation = theoreticalPerPattern > 0
+                ? ((actual - theoreticalPerPattern) / theoreticalPerPattern) * 100
+                : 0;
+              return { pattern, 실제: actual, 이론: theoreticalPerPattern, deviation };
+            }).sort((a, b) => b.실제 - a.실제);
+          })();
+
+          // 전체 비교 차트 데이터 (0~9 순서로)
+          const comparisonData = Array.from({ length: 10 }, (_, d) => {
+            const actual = analysis.singleDuplicateDigitRanking.find(r => r.digit === String(d));
+            const actualCount = actual?.count ?? 0;
+            const deviation = ((actualCount - theoreticalCount) / theoreticalCount) * 100;
+            return {
+              digit: String(d),
+              실제: actualCount,
+              이론: theoreticalCount,
+              deviation,
+              absenceCount: actual?.absenceCount ?? 0,
+            };
+          });
+
+          const selected = selectedDigit !== null
+            ? comparisonData[selectedDigit]
+            : null;
+
+          return (
+            <div>
+              <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                <Trophy size={20} />
+                1개 중복 숫자별 빈도 순위
+                <InfoTooltip text="정확히 1가지 숫자가 2번 등장한 회차에서, 어떤 숫자가 중복되었는지 빈도 순위입니다. 연속 미출현 수가 클수록 최근 당첨에서 오래 나오지 않은 숫자입니다." width="w-80" />
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-2 mb-6">
+                {topDuplicates.map((item, index) => (
+                  <button
+                    key={item.digit}
+                    onClick={() => setSelectedDigit(prev => prev === parseInt(item.digit) ? null : parseInt(item.digit))}
+                    className={`p-3 rounded-lg text-center transition-all ${
+                      selectedDigit === parseInt(item.digit)
+                        ? 'ring-2 ring-blue-500 bg-blue-50 border-2 border-blue-400'
+                        : index === 0
+                        ? 'bg-yellow-50 border-2 border-yellow-400 hover:bg-yellow-100'
+                        : index < 3
+                        ? 'bg-gray-50 border border-gray-300 hover:bg-gray-100'
+                        : 'bg-white border border-gray-200 hover:bg-gray-50'
                     }`}
                   >
-                    {index + 1}
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white mx-auto mb-2 ${
+                        index === 0 ? 'bg-yellow-500' : index === 1 ? 'bg-gray-400' : index === 2 ? 'bg-orange-400' : 'bg-blue-400'
+                      }`}
+                    >
+                      {index + 1}
+                    </div>
+                    <div className="text-xl font-bold text-gray-800 mb-1">숫자 {item.digit}</div>
+                    <div className="text-lg font-bold text-blue-600 mb-1">{item.count}회</div>
+                    <div className="text-xs text-amber-600 font-medium">미출현 {item.absenceCount}회</div>
+                    <div className="text-xs text-gray-500">({(item.count / analysis.totalCount * 100).toFixed(1)}%)</div>
+                  </button>
+                ))}
+              </div>
+
+              {/* 이론값 vs 실제 비교 그래프 */}
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <div className="flex items-center gap-2 mb-1">
+                  <BarChart3 size={16} className="text-gray-600" />
+                  <span className="text-sm font-semibold text-gray-700">이론값 vs 실제 출현 비교</span>
+                  {selected && (
+                    <span className="ml-auto text-xs text-gray-500">
+                      숫자 {selectedDigit} 선택됨 — 실제 {selected.실제}회 / 이론 {theoreticalCount.toFixed(1)}회
+                      <span className={`ml-1 font-semibold ${selected.deviation >= 0 ? 'text-red-500' : 'text-blue-500'}`}>
+                        ({selected.deviation >= 0 ? '+' : ''}{selected.deviation.toFixed(1)}%)
+                      </span>
+                    </span>
+                  )}
+                  {!selected && (
+                    <span className="ml-auto text-xs text-gray-400">숫자를 클릭하면 상세 표시</span>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 mb-3">이론값 = 균등분포 기댓값 (totalCount ÷ 10). 실제가 이론보다 낮을수록 평균 회귀 여지가 큼.</p>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={comparisonData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }} barCategoryGap="20%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="digit" stroke="#374151" fontSize={12} tickFormatter={d => `${d}`} />
+                    <YAxis stroke="#374151" fontSize={11} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const d = comparisonData[parseInt(label)];
+                        return (
+                          <div className="bg-white p-2 border border-gray-200 rounded shadow text-xs">
+                            <p className="font-bold mb-1">숫자 {label}</p>
+                            <p className="text-blue-600">실제: {d.실제}회 ({(d.실제 / analysis.totalCount * 100).toFixed(1)}%)</p>
+                            <p className="text-gray-500">이론: {d.이론.toFixed(1)}회 (10.0%)</p>
+                            <p className={d.deviation >= 0 ? 'text-red-500' : 'text-blue-500'}>
+                              괴리: {d.deviation >= 0 ? '+' : ''}{d.deviation.toFixed(1)}%
+                            </p>
+                            <p className="text-amber-600">미출현: {d.absenceCount}회</p>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Bar dataKey="이론" fill="#d1d5db" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="실제" radius={[2, 2, 0, 0]}>
+                      {comparisonData.map((entry, index) => (
+                        <Cell
+                          key={index}
+                          fill={
+                            selectedDigit === index
+                              ? '#2563eb'
+                              : entry.deviation < 0
+                              ? '#3b82f6'
+                              : '#ef4444'
+                          }
+                          opacity={selectedDigit !== null && selectedDigit !== index ? 0.4 : 1}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="flex items-center gap-4 mt-2 text-[11px] text-gray-500 justify-center">
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-300 inline-block" />이론값</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-500 inline-block" />실제 (이론 미달 → 평균회귀 여지)</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-400 inline-block" />실제 (이론 초과 → 과잉)</span>
+                </div>
+              </div>
+
+              {/* 선택된 digit의 패턴별 분포 */}
+              {digitPatternData && (
+                <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Hash size={16} className="text-blue-600" />
+                    <span className="text-sm font-semibold text-blue-700">숫자 {selectedDigit}의 배치 패턴별 출현 분포</span>
+                    <span className="ml-auto text-xs text-gray-400">숫자 {selectedDigit}이 중복된 {digitPatternData.reduce((s, d) => s + d.실제, 0)}회 기준 · 이론값 = {digitPatternData[0]?.이론.toFixed(1)}회/패턴</span>
                   </div>
-                  <div className="text-xl font-bold text-gray-800 mb-1">숫자 {item.digit}</div>
-                  <div className="text-lg font-bold text-blue-600 mb-1">{item.count}회</div>
-                  <div className="text-xs text-amber-600 font-medium" title="최근 몇 회 동안 2중복으로 출현 안 함">
-                    연속 미출현 {item.absenceCount}회
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    ({(item.count / analysis.totalCount * 100).toFixed(1)}%)
+                  <p className="text-[11px] text-gray-400 mb-3">해당 숫자가 중복 출현했을 때 어떤 배치패턴으로 나왔는지. 보라색=이론 미달(회귀 여지), 빨간색=이론 초과(과잉)</p>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={digitPatternData} margin={{ top: 4, right: 16, left: 0, bottom: 55 }} barCategoryGap="15%">
+                        <CartesianGrid strokeDasharray="3 3" stroke="#dbeafe" />
+                        <XAxis dataKey="pattern" fontSize={10} angle={-45} textAnchor="end" height={55} stroke="#374151" />
+                        <YAxis fontSize={11} stroke="#374151" />
+                        <Tooltip
+                          content={({ active, payload }) => {
+                            if (!active || !payload?.length) return null;
+                            const d = payload[0].payload;
+                            return (
+                              <div className="bg-white p-2 border border-gray-200 rounded shadow text-xs">
+                                <p className="font-mono font-bold mb-1">{d.pattern}</p>
+                                <p className="text-gray-400">이론: {d.이론.toFixed(1)}회</p>
+                                <p className="text-purple-600">실제: {d.실제}회</p>
+                                <p className={d.deviation >= 0 ? 'text-red-500' : 'text-blue-500'}>
+                                  괴리: {d.deviation >= 0 ? '+' : ''}{d.deviation.toFixed(1)}%
+                                </p>
+                              </div>
+                            );
+                          }}
+                        />
+                        <Bar dataKey="이론" fill="#bfdbfe" radius={[2, 2, 0, 0]} />
+                        <Bar dataKey="실제" radius={[2, 2, 0, 0]}>
+                          {digitPatternData.map((entry, index) => (
+                            <Cell key={index} fill={entry.deviation < 0 ? '#8b5cf6' : '#ef4444'} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
-            {analysis.singleDuplicateDigitRanking.length > 10 && (
-              <p className="text-sm text-gray-500 mt-2 text-center">
-                상위 10개만 표시 (총 {analysis.singleDuplicateDigitRanking.length}개 숫자)
-              </p>
-            )}
-          </div>
-        )}
+          );
+        })()}
 
         {/* 1개 중복 숫자 배치 패턴 분석 */}
         {(() => {
@@ -203,67 +419,74 @@ export default function DuplicatePatternAnalysis({ lotteryData }: DuplicatePatte
             return null;
           }
 
+          // 배치 패턴 이론값: C(6,2)=15가지 균등분포 → 각 패턴 이론값 = totalCount / 15
+          const patternTheoretical = positionPatternAnalysis.totalCount / 15;
+          const patternChartData = positionPatternAnalysis.patternDetails.map(p => {
+            const deviation = ((p.count - patternTheoretical) / patternTheoretical) * 100;
+            return { ...p, 이론: patternTheoretical, 실제: p.count, deviation };
+          });
+
           return (
             <div>
-              <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
+              <h3 className="text-lg font-semibold text-gray-700 mb-1 flex items-center gap-2">
                 <Repeat size={20} />
                 1개 중복 숫자 배치 패턴 분석 (O: 중복 숫자, X: 다른 숫자)
-                <InfoTooltip text="중복 숫자가 6자리 중 어느 위치에 배치되는지 패턴을 분석합니다. 예: 'OXXXXO'는 1번째와 6번째 자리에 같은 숫자가 등장한 패턴입니다." width="w-80" />
+                <InfoTooltip text="중복 숫자가 6자리 중 어느 위치에 배치되는지 패턴을 분석합니다. 이론값 = C(6,2)=15가지 균등분포 기준." width="w-80" />
               </h3>
-              
+              <p className="text-xs text-gray-400 mb-4">이론값 = 1개 중복 회차 ÷ 15. 실제가 이론보다 낮을수록 평균 회귀 여지가 큼.</p>
+
               <div className="space-y-4">
-                {/* 패턴별 분포 막대 차트 */}
-                <div>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart 
-                        data={positionPatternAnalysis.patternDetails} 
-                        margin={{ top: 5, right: 30, left: 20, bottom: 60 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis 
-                          dataKey="pattern" 
-                          stroke="#374151"
-                          fontSize={11}
-                          angle={-45}
-                          textAnchor="end"
-                          height={60}
-                        />
-                        <YAxis 
-                          stroke="#374151"
-                          fontSize={12}
-                        />
-                        <Tooltip 
-                          content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                              const data = payload[0].payload;
-                              return (
-                                <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-                                  <p className="font-bold text-gray-800">패턴: {data.pattern}</p>
-                                  <p className="text-blue-600">
-                                    출현: <span className="font-bold">{data.count}회</span>
-                                  </p>
-                                  <p className="text-amber-600">
-                                    연속 미출현: <span className="font-bold">{data.absenceCount}회</span>
-                                  </p>
-                                  <p className="text-green-600">
-                                    비율: <span className="font-bold">{data.percentage.toFixed(2)}%</span>
-                                  </p>
-                                  {data.examples.length > 0 && (
-                                    <p className="text-xs text-gray-500 mt-1">
-                                      예시: {data.examples.join(', ')}회차
-                                    </p>
-                                  )}
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
-                        <Bar dataKey="count" fill="#8b5cf6" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                {/* 패턴별 이론 vs 실제 막대 차트 */}
+                <div className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={patternChartData}
+                      margin={{ top: 5, right: 20, left: 10, bottom: 60 }}
+                      barCategoryGap="15%"
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis
+                        dataKey="pattern"
+                        stroke="#374151"
+                        fontSize={10}
+                        angle={-45}
+                        textAnchor="end"
+                        height={60}
+                      />
+                      <YAxis stroke="#374151" fontSize={11} />
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null;
+                          const d = payload[0].payload;
+                          return (
+                            <div className="bg-white p-2 border border-gray-200 rounded shadow text-xs">
+                              <p className="font-bold mb-1 font-mono">{d.pattern}</p>
+                              <p className="text-gray-400">이론: {patternTheoretical.toFixed(1)}회</p>
+                              <p className="text-purple-600">실제: {d.count}회 ({d.percentage.toFixed(1)}%)</p>
+                              <p className={d.deviation >= 0 ? 'text-red-500' : 'text-blue-500'}>
+                                괴리: {d.deviation >= 0 ? '+' : ''}{d.deviation.toFixed(1)}%
+                              </p>
+                              <p className="text-amber-600">미출현: {d.absenceCount}회</p>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Bar dataKey="이론" fill="#d1d5db" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="실제" radius={[2, 2, 0, 0]}>
+                        {patternChartData.map((entry, index) => (
+                          <Cell
+                            key={index}
+                            fill={entry.deviation < 0 ? '#8b5cf6' : '#ef4444'}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex items-center gap-4 text-[11px] text-gray-500 justify-center">
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-300 inline-block" />이론값</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-purple-500 inline-block" />실제 (이론 미달 → 평균회귀 여지)</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-400 inline-block" />실제 (이론 초과 → 과잉)</span>
                 </div>
 
                 {/* 패턴별 상세 리스트 */}

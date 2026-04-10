@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { LotteryData, analyzePositionFrequency, analyzeDigitSum, analyzeDuplicatePatterns, analyzeDuplicatePositionPatterns, analyzeDuplicateFrequency, analyzePreviousRoundComparison, analyzePositionTransition, analyzeFirstDigitComparison } from '../lib/dataParser';
 import { Sparkles, RefreshCw, Dice6, TrendingUp, TrendingDown, Save, Trash2, History, X } from 'lucide-react';
 
@@ -499,6 +499,7 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
   const [selectedDuplicateDigitOptions, setSelectedDuplicateDigitOptions] = useState<number[]>([]);
   const [limitToStdDevOption, setLimitToStdDevOption] = useState(false);
   const [useRecentTrendOption, setUseRecentTrendOption] = useState(false);
+  const [gameRecoSeed, setGameRecoSeed] = useState(0);
 
   // ── 저장 관련 state ──────────────────────────────────────────────────────
   const [savedPredictions, setSavedPredictions] = useState<number[][]>([]);
@@ -853,6 +854,64 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
   const sumAnalysis = analyzeDigitSum(lotteryData);
   const positionPatternAnalysis = analyzeDuplicatePositionPatterns(lotteryData);
   const duplicateAnalysisForOptions = analyzeDuplicatePatterns(lotteryData);
+  const totalDraws = lotteryData.length;
+
+  // 신호 강도: signalScore = overdueRatio × frequency
+  //   overdueRatio = absenceCount / avgInterval  (평균 주기 대비 밀린 정도)
+  //   frequency    = count / totalDraws          (역사적 출현율)
+  // → 자주 나왔던 패턴이 지금 많이 밀렸을 때 높은 점수
+  const signalStrengths = (() => {
+    // 절대 임계값 없이, signalScore 상위 3개만 선별
+    // signalScore = overdueRatio × frequency
+    //   overdueRatio = absenceCount / avgInterval (평균 주기 대비 밀린 정도)
+    //   frequency    = count / totalDraws         (역사적 출현율)
+    // → 자주 나왔던 패턴이 지금 많이 밀렸을 때 높은 점수
+
+    const patterns = positionPatternAnalysis.patternDetails
+      .map(p => {
+        const frequency = p.count / totalDraws;
+        const avgInterval = totalDraws / p.count;
+        const overdueRatio = p.absenceCount / avgInterval;
+        const signalScore = overdueRatio * frequency;
+        return { type: 'pattern' as const, key: p.pattern, label: p.pattern, signalScore, overdueRatio, frequency, absenceCount: p.absenceCount, avgInterval, count: p.count, percentage: p.percentage };
+      })
+      .sort((a, b) => b.signalScore - a.signalScore)
+      .slice(0, 4);
+
+    const digits = duplicateAnalysisForOptions.singleDuplicateDigitRanking
+      .map(d => {
+        const frequency = d.count / totalDraws;
+        const avgInterval = totalDraws / d.count;
+        const overdueRatio = d.absenceCount / avgInterval;
+        const signalScore = overdueRatio * frequency;
+        return { type: 'digit' as const, key: parseInt(d.digit), label: `숫자 ${d.digit}`, signalScore, overdueRatio, frequency, absenceCount: d.absenceCount, avgInterval, count: d.count };
+      })
+      .sort((a, b) => b.signalScore - a.signalScore)
+      .slice(0, 4);
+
+    return { patterns, digits };
+  })();
+
+  // 게임 추천: top4 digit × top4 pattern 랜덤 조합 (gameRecoSeed 변경 시에만 셔플)
+  // digit과 pattern은 000000~999999 균등분포에서 완전 독립이므로 독립 신호를 별도 계산
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const gameRecommendations = useMemo(() => {
+    const top4Digits = signalStrengths.digits.slice(0, 4);
+    const top4Patterns = signalStrengths.patterns.slice(0, 4);
+
+    const patternIndices = [0, 1, 2, 3];
+    for (let i = patternIndices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [patternIndices[i], patternIndices[j]] = [patternIndices[j], patternIndices[i]];
+    }
+
+    return top4Digits.map((d, i) => ({
+      digit: d,
+      pattern: top4Patterns[patternIndices[i]]?.key as string ?? null,
+    }));
+  // gameRecoSeed 변경 시에만 재계산
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameRecoSeed, signalStrengths.digits, signalStrengths.patterns]);
 
   return (
     <div className="bg-gradient-to-r from-purple-50 via-blue-50 to-purple-50 rounded-lg shadow-lg p-4 sm:p-6 mb-4 sm:mb-6 lg:mb-8 border-2 border-purple-200">
@@ -997,6 +1056,98 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
           </label>
         </div>
       </div>
+
+      {/* 강한 신호 패턴 */}
+      {(signalStrengths.patterns.length > 0 || signalStrengths.digits.length > 0) && (
+        <div className="mb-4 p-3 sm:p-4 bg-white/70 rounded-lg border border-amber-300">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <span className="text-xs sm:text-sm font-semibold text-gray-700 shrink-0">현재 가장 강한 신호</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setGameRecoSeed(s => s + 1)}
+                className="p-1 text-gray-400 hover:text-amber-600 transition-colors"
+                title="조합 다시 섞기"
+              >
+                <RefreshCw size={13} />
+              </button>
+              {(() => {
+                const btnColors = [
+                  'bg-amber-500 hover:bg-amber-600',
+                  'bg-orange-500 hover:bg-orange-600',
+                  'bg-teal-500 hover:bg-teal-600',
+                  'bg-indigo-500 hover:bg-indigo-600',
+                ];
+                return gameRecommendations.map((rec, i) => {
+                  if (!rec.digit && !rec.pattern) return null;
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        setSelectedPatternOptions(rec.pattern ? [rec.pattern] : []);
+                        setSelectedDuplicateDigitOptions([rec.digit.key]);
+                      }}
+                      className={`flex items-center gap-1 px-2 py-1.5 ${btnColors[i]} text-white rounded transition-colors shadow`}
+                    >
+                      <span className="font-mono text-[11px] font-bold tracking-wide">{rec.pattern ?? '—'}</span>
+                      <span className="text-[11px] font-semibold">·{rec.digit.key}</span>
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            {/* 배치 패턴 1줄 */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-semibold text-gray-500 shrink-0 w-12">배치패턴</span>
+              <div className="flex gap-1 flex-1 min-w-0">
+                {signalStrengths.patterns.map((p) => {
+                  const maxScore = signalStrengths.patterns[0].signalScore || 1;
+                  const barWidth = Math.min(p.signalScore / maxScore, 1) * 100;
+                  const barColor = p.overdueRatio >= 2.0 ? 'bg-red-400' : p.overdueRatio >= 1.0 ? 'bg-amber-400' : 'bg-green-400';
+                  const textColor = p.overdueRatio >= 2.0 ? 'text-red-600' : p.overdueRatio >= 1.0 ? 'text-amber-600' : 'text-green-600';
+                  return (
+                    <div key={p.key} className="flex-1 min-w-0 bg-white rounded border border-gray-100 px-1.5 py-0.5">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-mono text-[10px] font-semibold text-gray-700 truncate">{p.label}</span>
+                        <span className={`text-[9px] font-bold shrink-0 ${textColor}`}>{p.overdueRatio.toFixed(1)}x</span>
+                      </div>
+                      <div className="h-1 bg-gray-100 rounded-full overflow-hidden mt-0.5">
+                        <div className={`h-full rounded-full ${barColor}`} style={{ width: `${barWidth}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 중복 숫자 1줄 */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-semibold text-gray-500 shrink-0 w-12">중복숫자</span>
+              <div className="flex gap-1 flex-1 min-w-0">
+                {signalStrengths.digits.map((d) => {
+                  const maxScore = signalStrengths.digits[0].signalScore || 1;
+                  const barWidth = Math.min(d.signalScore / maxScore, 1) * 100;
+                  const barColor = d.overdueRatio >= 2.0 ? 'bg-red-400' : d.overdueRatio >= 1.0 ? 'bg-amber-400' : 'bg-green-400';
+                  const textColor = d.overdueRatio >= 2.0 ? 'text-red-600' : d.overdueRatio >= 1.0 ? 'text-amber-600' : 'text-green-600';
+                  return (
+                    <div key={d.key} className="flex-1 min-w-0 bg-white rounded border border-gray-100 px-1.5 py-0.5">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-semibold text-gray-700">{d.label}</span>
+                        <span className={`text-[9px] font-bold shrink-0 ${textColor}`}>{d.overdueRatio.toFixed(1)}x</span>
+                      </div>
+                      <div className="h-1 bg-gray-100 rounded-full overflow-hidden mt-0.5">
+                        <div className={`h-full rounded-full ${barColor}`} style={{ width: `${barWidth}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 맨 앞자리 숫자가 직전보다 클/작을 확률 (과거 데이터 기준) */}
       {(() => {
