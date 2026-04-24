@@ -85,12 +85,18 @@ function meetsPatternConstraints(
   sumMin: number | null,
   sumMax: number | null,
   maxConsecutivePairs: number | null,
-  allowedGroup9_45Keys: Set<string> | null
+  allowedGroup9_45Keys: Set<string> | null,
+  allowedOddEvenKeys: Set<string> | null
 ): boolean {
   if (nums.length !== PICK_COUNT) return false;
   if (allowedGroup9_45Keys != null && allowedGroup9_45Keys.size > 0) {
     const key = `${countGroup9(nums)},${countGroup45(nums)}`;
     if (!allowedGroup9_45Keys.has(key)) return false;
+  }
+  if (allowedOddEvenKeys != null && allowedOddEvenKeys.size > 0) {
+    const evenCount = nums.filter((n) => n % 2 === 0).length;
+    const key = `${evenCount},${PICK_COUNT - evenCount}`;
+    if (!allowedOddEvenKeys.has(key)) return false;
   }
   const sum = nums.reduce((a, b) => a + b, 0);
   const effSumMin = sumMin != null ? Math.max(SUM_RANGE.min, Math.min(SUM_RANGE.max, sumMin)) : null;
@@ -427,7 +433,7 @@ function drawByGroupCounts(
   if (needFill > 0) {
     const excludeFromFill = new Set<number>();
     for (const key of GROUP_KEYS) {
-      if (groupEnabled[key] && (groupCounts[key] ?? 0) === 0 && !(groupAtMost[key] ?? false)) {
+      if (groupEnabled[key] && !(groupAtMost[key] ?? false)) {
         for (const n of getNumbersInGroup(key)) excludeFromFill.add(n);
       }
     }
@@ -492,11 +498,12 @@ export function LottoPageBody() {
   const [groupAtMost, setGroupAtMost] = useState<GroupAtMost>(getDefaultGroupAtMost);
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedMessage, setSeedMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<"number" | "group" | "group9_45" | "sum" | "consecutive" | "prevRound">("number");
+  const [activeTab, setActiveTab] = useState<"number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "prevRound">("number");
   const [sumMin, setSumMin] = useState<number | null>(null);
   const [sumMax, setSumMax] = useState<number | null>(null);
   const [maxConsecutivePairs, setMaxConsecutivePairs] = useState<number | null>(null);
   const [selectedGroup9_45Keys, setSelectedGroup9_45Keys] = useState<Set<string>>(new Set());
+  const [selectedOddEvenKeys, setSelectedOddEvenKeys] = useState<Set<string>>(new Set());
   const [savedRounds, setSavedRounds] = useState<{
     data: { round: number; n1: number; n2: number; n3: number; n4: number; n5: number; n6: number; bonus: number }[];
     total: number;
@@ -682,6 +689,26 @@ export function LottoPageBody() {
     fetchExclusionData();
   }, [fetchExclusionData]);
 
+  const loadAllRounds = useCallback(async () => {
+    if (allRounds.length > 0) return;
+    setAllRoundsLoading(true);
+    try {
+      const PAGE = 1000;
+      let offset = 0;
+      const collected: typeof allRounds = [];
+      while (true) {
+        const r = await fetch(`/api/lotto?limit=${PAGE}&offset=${offset}`, { cache: "no-store" });
+        const j = await r.json();
+        if (j.error || !Array.isArray(j.data) || j.data.length === 0) break;
+        collected.push(...j.data);
+        if (collected.length >= j.total || j.data.length < PAGE) break;
+        offset += PAGE;
+      }
+      setAllRounds(collected);
+    } catch {}
+    finally { setAllRoundsLoading(false); }
+  }, [allRounds.length]);
+
   // 저장된 설정(이전 데이터) 불러오기
   useEffect(() => {
     let cancelled = false;
@@ -735,25 +762,43 @@ export function LottoPageBody() {
           if (typeof ps.sumMax === "number" && ps.sumMax >= SUM_RANGE.min && ps.sumMax <= SUM_RANGE.max) setSumMax(ps.sumMax);
           if (typeof ps.maxConsecutivePairs === "number" && ps.maxConsecutivePairs >= 0 && ps.maxConsecutivePairs <= 5) setMaxConsecutivePairs(ps.maxConsecutivePairs);
           if (Array.isArray(ps.group9_45Keys)) setSelectedGroup9_45Keys(new Set(ps.group9_45Keys));
+          if (Array.isArray(ps.oddEvenKeys)) setSelectedOddEvenKeys(new Set(ps.oddEvenKeys));
+          if (Array.isArray(ps.prevRoundKeys) && ps.prevRoundKeys.length > 0) {
+            const rounds = new Set<number>(ps.prevRoundKeys.map(Number).filter((n: number) => !isNaN(n) && n > 0));
+            if (rounds.size > 0) {
+              setSelectedPrevRounds(rounds);
+              loadAllRounds();
+            }
+          }
         }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAllRounds]);
 
   const TABS = [
     { id: "number" as const, label: "번호 선택 (포함/제외 또는 사용)" },
     { id: "group" as const, label: "그룹별 개수" },
     { id: "group9_45" as const, label: "9·45 조합" },
     { id: "sum" as const, label: "합계" },
+    { id: "oddEven" as const, label: "홀짝" },
     { id: "consecutive" as const, label: "연속" },
     { id: "prevRound" as const, label: "이전 회차" },
   ];
 
   const toggleGroup9_45Key = useCallback((key: string) => {
     setSelectedGroup9_45Keys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const toggleOddEvenKey = useCallback((key: string) => {
+    setSelectedOddEvenKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -933,8 +978,9 @@ export function LottoPageBody() {
     if (!canDraw) return;
     const n = Math.min(MAX_GAMES, Math.max(MIN_GAMES, gameCount));
     const allowedGroup9_45 = selectedGroup9_45Keys.size > 0 ? selectedGroup9_45Keys : null;
+    const allowedOddEven = selectedOddEvenKeys.size > 0 ? selectedOddEvenKeys : null;
     const hasPatternConstraint =
-      sumMin != null || sumMax != null || maxConsecutivePairs != null || allowedGroup9_45 != null;
+      sumMin != null || sumMax != null || maxConsecutivePairs != null || allowedGroup9_45 != null || allowedOddEven != null;
     const maxRetry = hasPatternConstraint ? 200 : 1;
     setIsDrawing(true);
     setGames([]);
@@ -954,7 +1000,7 @@ export function LottoPageBody() {
             ? drawByGroupCounts(groupCounts, groupEnabled, groupAtMost, mustInclude, mustExclude, prevRoundExclude)
             : drawLottoNumbers(mustInclude, mustExclude, atLeastOne, prevRoundExclude);
           if (result.length !== PICK_COUNT) continue;
-          if (!meetsPatternConstraints(result, sumMin, sumMax, maxConsecutivePairs, allowedGroup9_45)) continue;
+          if (!meetsPatternConstraints(result, sumMin, sumMax, maxConsecutivePairs, allowedGroup9_45, allowedOddEven)) continue;
           const key = toSetKey(result);
           if (forbiddenSetKeys.has(key) || alreadyDrawnKeysInBatch.has(key)) continue;
           break;
@@ -978,6 +1024,8 @@ export function LottoPageBody() {
             sumMax,
             maxConsecutivePairs,
             group9_45Keys: Array.from(selectedGroup9_45Keys),
+            oddEvenKeys: Array.from(selectedOddEvenKeys),
+            prevRoundKeys: Array.from(selectedPrevRounds),
           },
         }),
       }).catch(() => {});
@@ -996,6 +1044,7 @@ export function LottoPageBody() {
     sumMax,
     maxConsecutivePairs,
     selectedGroup9_45Keys,
+    selectedOddEvenKeys,
     exclusionWinningSetKeys,
     exclusionDrawnSetKeys,
     prevRoundExclude,
@@ -1005,26 +1054,7 @@ export function LottoPageBody() {
     games, setGames, gameCount, setGameCount, isDrawing, filterStates, currentCategory,
     groupCounts, groupEnabled, groupAtMost, seedLoading, seedMessage, activeTab, setActiveTab: (tab: typeof activeTab) => {
       setActiveTab(tab);
-      if ((tab === "prevRound" || tab === "sum") && allRounds.length === 0) {
-        setAllRoundsLoading(true);
-        (async () => {
-          try {
-            const PAGE = 1000;
-            let offset = 0;
-            const collected: typeof allRounds = [];
-            while (true) {
-              const r = await fetch(`/api/lotto?limit=${PAGE}&offset=${offset}`, { cache: "no-store" });
-              const j = await r.json();
-              if (j.error || !Array.isArray(j.data) || j.data.length === 0) break;
-              collected.push(...j.data);
-              if (collected.length >= j.total || j.data.length < PAGE) break;
-              offset += PAGE;
-            }
-            setAllRounds(collected);
-          } catch {}
-          finally { setAllRoundsLoading(false); }
-        })();
-      }
+      if (tab === "prevRound" || tab === "sum" || tab === "oddEven") loadAllRounds();
     }, sumMin, sumMax,
     maxConsecutivePairs, selectedGroup9_45Keys, toggleGroup9_45Key, runAnalysis, savedRounds, savedRoundsLoading, allRounds, allRoundsLoading, mainTab, setMainTab, analysis, analysisLoading,
     saveDrawnLoading, saveDrawnMessage, fetchDbScreenData, handleDraw, canDraw, nextRound: resolvedNextRound,
@@ -1032,6 +1062,7 @@ export function LottoPageBody() {
     TABS, mustInclude, mustExclude, atLeastOne, useGroupCountMode, poolSize,
     setSaveDrawnMessage, setSaveDrawnLoading, setSavedRounds, setAnalysis, setAnalysisLoading, setSeedMessage, setSeedLoading,
     setSumMin, setSumMax, setMaxConsecutivePairs,
+    selectedOddEvenKeys, toggleOddEvenKey,
     fetchExclusionData,
     prevRoundsOpen, setPrevRoundsOpen, selectedPrevRounds, setSelectedPrevRounds, prevRoundExclude,
     MIN_GAMES, MAX_GAMES, SUM_RANGE, PICK_COUNT,

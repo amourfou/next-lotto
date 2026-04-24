@@ -17,7 +17,7 @@ type Scope = {
   groupAtMost: Record<number, boolean>;
   seedLoading: boolean;
   seedMessage: { type: "ok" | "error"; text: string } | null;
-  activeTab: "number" | "group" | "group9_45" | "sum" | "consecutive" | "prevRound";
+  activeTab: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "prevRound";
   sumMin: number | null;
   sumMax: number | null;
   maxConsecutivePairs: number | null;
@@ -42,7 +42,7 @@ type Scope = {
   handleGroupCountChange: (groupKey: number, value: number) => void;
   handleToggleGroupEnabled: (groupKey: number) => void;
   handleSetGroupAtMost: (groupKey: number, atMost: boolean) => void;
-  TABS: { id: "number" | "group" | "group9_45" | "sum" | "consecutive" | "prevRound"; label: string }[];
+  TABS: { id: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "prevRound"; label: string }[];
   mustInclude: number[];
   mustExclude: number[];
   atLeastOne: number[];
@@ -58,7 +58,9 @@ type Scope = {
   setSumMin: (v: number | null) => void;
   setSumMax: (v: number | null) => void;
   setMaxConsecutivePairs: (v: number | null) => void;
-  setActiveTab: (v: "number" | "group" | "group9_45" | "sum" | "consecutive" | "prevRound") => void;
+  setActiveTab: (v: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "prevRound") => void;
+  selectedOddEvenKeys: Set<string>;
+  toggleOddEvenKey: (key: string) => void;
   fetchExclusionData: () => void;
   selectedPrevRounds: Set<number>;
   setSelectedPrevRounds: (v: Set<number> | ((prev: Set<number>) => Set<number>)) => void;
@@ -667,6 +669,77 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                   <p className="text-slate-500 text-xs text-center">번호를 뽑은 뒤 설정은 계정 DB에 저장됩니다.</p>
                 </div>
               )}
+              {s.activeTab === "oddEven" && (() => {
+                const ODD_EVEN_COMBOS = [
+                  { key: "6,0", label: "짝6 홀0" },
+                  { key: "5,1", label: "짝5 홀1" },
+                  { key: "4,2", label: "짝4 홀2" },
+                  { key: "3,3", label: "짝3 홀3" },
+                  { key: "2,4", label: "짝2 홀4" },
+                  { key: "1,5", label: "짝1 홀5" },
+                  { key: "0,6", label: "짝0 홀6" },
+                ];
+                const dist: Record<string, number> = {};
+                let distTotal = 0;
+                for (const r of s.allRounds) {
+                  const nums = [r.n1, r.n2, r.n3, r.n4, r.n5, r.n6];
+                  const even = nums.filter((n) => n % 2 === 0).length;
+                  const k = `${even},${6 - even}`;
+                  dist[k] = (dist[k] ?? 0) + 1;
+                  distTotal++;
+                }
+                const maxCount = Math.max(...ODD_EVEN_COMBOS.map((c) => dist[c.key] ?? 0), 1);
+                return (
+                  <div className="space-y-3 max-w-sm mx-auto">
+                    <h2 className="text-slate-400 font-semibold text-sm text-center">
+                      홀짝 비율 필터 (체크한 조합만 허용, 하나도 없으면 제한 없음)
+                    </h2>
+                    {distTotal === 0 && (
+                      <p className="text-slate-500 text-xs text-center">당첨 번호 데이터를 불러오면 통계가 표시됩니다.</p>
+                    )}
+                    <div className="space-y-1.5">
+                      {ODD_EVEN_COMBOS.map(({ key, label }) => {
+                        const count = dist[key] ?? 0;
+                        const pct = distTotal > 0 ? ((count / distTotal) * 100).toFixed(1) : "0.0";
+                        const barW = Math.round((count / maxCount) * 100);
+                        const checked = s.selectedOddEvenKeys.has(key);
+                        return (
+                          <label
+                            key={key}
+                            className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                              checked
+                                ? "bg-violet-600/25 border border-violet-500/50"
+                                : "bg-slate-700/40 border border-slate-600/40 hover:bg-slate-700/70"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => s.toggleOddEvenKey(key)}
+                              className="rounded border-slate-500 accent-violet-500"
+                            />
+                            <span className="text-slate-200 text-sm font-medium w-16 shrink-0">{label}</span>
+                            <div className="flex-1 flex items-center gap-2">
+                              <div className="flex-1 bg-slate-600/50 rounded-full h-2 overflow-hidden">
+                                <div
+                                  className="h-2 rounded-full bg-violet-500/80"
+                                  style={{ width: `${barW}%` }}
+                                />
+                              </div>
+                              {distTotal > 0 && (
+                                <span className="text-slate-400 text-xs w-16 text-right shrink-0">
+                                  {count}회 ({pct}%)
+                                </span>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="text-slate-500 text-xs text-center">번호를 뽑은 뒤 설정은 계정 DB에 저장됩니다.</p>
+                  </div>
+                );
+              })()}
               {s.activeTab === "consecutive" && (
                 <div className="space-y-4 max-w-md mx-auto">
                   <h2 className="text-slate-400 font-semibold text-sm text-center mb-3">

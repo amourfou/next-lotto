@@ -17,6 +17,8 @@ export type DrawSettingsPayload = {
     sumMax?: number | null;
     maxConsecutivePairs?: number | null;
     group9_45Keys?: string[];
+    oddEvenKeys?: string[];
+    prevRoundKeys?: number[];
   };
 };
 
@@ -47,6 +49,8 @@ export async function GET() {
       sumMax?: number | null;
       maxConsecutivePairs?: number | null;
       group9_45Keys?: string[];
+      oddEvenKeys?: string[];
+      prevRoundKeys?: number[];
     } = {};
     try {
       if (row.pattern_settings) patternSettings = JSON.parse(row.pattern_settings);
@@ -103,6 +107,8 @@ export async function POST(request: NextRequest) {
             sumMax: body.patternSettings.sumMax ?? null,
             maxConsecutivePairs: body.patternSettings.maxConsecutivePairs ?? null,
             group9_45Keys: Array.isArray(body.patternSettings.group9_45Keys) ? body.patternSettings.group9_45Keys : [],
+            oddEvenKeys: Array.isArray(body.patternSettings.oddEvenKeys) ? body.patternSettings.oddEvenKeys : [],
+            prevRoundKeys: Array.isArray(body.patternSettings.prevRoundKeys) ? body.patternSettings.prevRoundKeys : [],
           })
         : "{}";
 
