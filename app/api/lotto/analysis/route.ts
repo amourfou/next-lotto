@@ -25,6 +25,11 @@ export async function GET() {
         histogram: Record<number, number>;
       };
       group9_45Distribution?: Record<string, number>;
+      groupPatternDistribution?: Record<string, number>;
+      /** 패턴별 출현 회차 번호(오름차순) */
+      groupPatternRounds?: Record<string, number[]>;
+      /** 데이터상 마지막 당첨 회차 번호 */
+      latestRound?: number;
       consecutivePattern?: {
         avgConsecutivePairs: number;
         avgMaxRun: number;

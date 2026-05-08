@@ -30,7 +30,7 @@ type Scope = {
   allRoundsLoading: boolean;
   mainTab: "draw" | "stats";
   setMainTab: (v: "draw" | "stats") => void;
-  analysis: { totalRounds: number; hot: number[]; cold: number[]; sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> }; group9_45Distribution?: Record<string, number>; consecutivePattern?: { avgConsecutivePairs: number; avgMaxRun: number; pairDistribution: Record<number, number>; maxRunDistribution: Record<number, number> }; updatedAt: string } | null;
+  analysis: { totalRounds: number; hot: number[]; cold: number[]; sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> }; group9_45Distribution?: Record<string, number>; groupPatternDistribution?: Record<string, number>; groupPatternRounds?: Record<string, number[]>; latestRound?: number; consecutivePattern?: { avgConsecutivePairs: number; avgMaxRun: number; pairDistribution: Record<number, number>; maxRunDistribution: Record<number, number> }; updatedAt: string } | null;
   analysisLoading: boolean;
   saveDrawnLoading: boolean;
   saveDrawnMessage: { type: "ok" | "error"; text: string } | null;
@@ -286,7 +286,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
       </div>}
 
       {s.mainTab === "stats" ? (
-        <div className="w-full max-w-2xl mt-4 space-y-4">
+        <div className="w-full max-w-3xl mt-4 space-y-4">
           <div className="flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"

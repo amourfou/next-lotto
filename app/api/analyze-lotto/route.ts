@@ -6,6 +6,24 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/** 1~9, 10~18, 19~27, 28~36, 37~45 → 인덱스 0~4 */
+function lottoStatGroupIndex(n: number): number {
+  if (n <= 9) return 0;
+  if (n <= 18) return 1;
+  if (n <= 27) return 2;
+  if (n <= 36) return 3;
+  return 4;
+}
+
+/** 6개 본번호의 그룹별 개수를 5자리 문자열로 (예: 11202) */
+function mainNumbersGroupPatternKey(nums: number[]): string {
+  const counts = [0, 0, 0, 0, 0];
+  for (const n of nums) {
+    counts[lottoStatGroupIndex(n)] += 1;
+  }
+  return counts.map(String).join("");
+}
+
 export async function POST() {
   try {
     const rows = await getWinningRoundsForAnalysis();
@@ -87,6 +105,18 @@ export async function POST() {
       group9_45Distribution[key] = (group9_45Distribution[key] ?? 0) + 1;
     }
 
+    const groupPatternRounds: Record<string, number[]> = {};
+    for (const r of rows) {
+      const gKey = mainNumbersGroupPatternKey([r.n1, r.n2, r.n3, r.n4, r.n5, r.n6]);
+      if (!groupPatternRounds[gKey]) groupPatternRounds[gKey] = [];
+      groupPatternRounds[gKey].push(r.round);
+    }
+    const groupPatternDistribution: Record<string, number> = {};
+    for (const [k, arr] of Object.entries(groupPatternRounds)) {
+      groupPatternDistribution[k] = arr.length;
+    }
+
+    const latestRound = rows[rows.length - 1]!.round;
     const data = JSON.stringify({
       totalRounds: rows.length,
       frequencies: freq,
@@ -105,6 +135,9 @@ export async function POST() {
         maxRunDistribution: maxRunDist,
       },
       group9_45Distribution,
+      groupPatternDistribution,
+      groupPatternRounds,
+      latestRound,
       updatedAt: new Date().toISOString(),
     });
 
@@ -128,6 +161,9 @@ export async function POST() {
         maxRunDistribution: maxRunDist,
       },
       group9_45Distribution,
+      groupPatternDistribution,
+      groupPatternRounds,
+      latestRound,
       updatedAt: new Date().toISOString(),
     };
 
@@ -137,6 +173,8 @@ export async function POST() {
       analysis: {
         ...analysis,
         group9_45Distribution: analysis.group9_45Distribution ?? {},
+        groupPatternDistribution: analysis.groupPatternDistribution ?? {},
+        groupPatternRounds: analysis.groupPatternRounds ?? {},
       },
     });
   } catch (e) {

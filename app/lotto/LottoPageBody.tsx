@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef, useLayoutEffect } from "react";
 import Link from "next/link";
 import LottoBall from "../components/LottoBall";
 import NumberFilter, { type NumberFilterState, type FilterCategory } from "../components/NumberFilter";
@@ -113,6 +113,10 @@ type AnalysisResult = {
   cold: number[];
   sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> };
   group9_45Distribution?: Record<string, number>;
+  /** 5그룹(1~9·10~18·19~27·28~36·37~45)별 본번호 개수 패턴 → 건수 */
+  groupPatternDistribution?: Record<string, number>;
+  groupPatternRounds?: Record<string, number[]>;
+  latestRound?: number;
   consecutivePattern?: {
     avgConsecutivePairs: number;
     avgMaxRun: number;
@@ -141,7 +145,349 @@ const GROUP_BALL_STYLES: Record<
   45: { bg: "bg-rose-500/25", text: "text-rose-300", border: "border-rose-500/50" },
 };
 
-function AnalysisResultView({ analysis, rounds }: { analysis: AnalysisResult; rounds?: { round: number; sum: number }[] }) {
+type GroupPatternSortKey =
+  | "pattern"
+  | "count"
+  | "pct"
+  | "last"
+  | "deltaLatest"
+  | "deltaPrev"
+  | "avgGap";
+
+/** 연속 출현 회차 간격의 평균 (회차 수 2 미만이면 null) */
+function avgConsecutiveRoundGap(roundsAsc: number[]): number | null {
+  if (roundsAsc.length < 2) return null;
+  let sum = 0;
+  for (let i = 1; i < roundsAsc.length; i++) sum += roundsAsc[i]! - roundsAsc[i - 1]!;
+  return sum / (roundsAsc.length - 1);
+}
+
+function cmpOptNum(a: number | null, b: number | null, asc: boolean): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  const d = a - b;
+  return asc ? d : -d;
+}
+
+function GroupPatternBlock({
+  analysis,
+  groupPatternCutoffRound,
+  setGroupPatternCutoffRound,
+  groupPatternMinCount,
+  setGroupPatternMinCount,
+}: {
+  analysis: AnalysisResult;
+  groupPatternCutoffRound: number | null;
+  setGroupPatternCutoffRound: (v: number | null) => void;
+  groupPatternMinCount: number;
+  setGroupPatternMinCount: (v: number) => void;
+}) {
+  const dist = analysis.groupPatternDistribution;
+  const roundLists = analysis.groupPatternRounds ?? {};
+  const latestRound = analysis.latestRound;
+  const total = analysis.totalRounds;
+  const [cutoffDraft, setCutoffDraft] = useState(() =>
+    groupPatternCutoffRound === null ? "" : String(groupPatternCutoffRound)
+  );
+  const [minCountDraft, setMinCountDraft] = useState(() => String(groupPatternMinCount));
+  const [sortKey, setSortKey] = useState<GroupPatternSortKey>("count");
+  const [sortAsc, setSortAsc] = useState(false);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const pendingScrollTop = useRef<number | null>(null);
+
+  useEffect(() => {
+    setCutoffDraft(groupPatternCutoffRound === null ? "" : String(groupPatternCutoffRound));
+  }, [analysis.updatedAt, groupPatternCutoffRound]);
+
+  useEffect(() => {
+    setMinCountDraft(String(groupPatternMinCount));
+  }, [analysis.updatedAt, groupPatternMinCount]);
+
+  useLayoutEffect(() => {
+    if (pendingScrollTop.current != null && tableScrollRef.current) {
+      tableScrollRef.current.scrollTop = pendingScrollTop.current;
+      pendingScrollTop.current = null;
+    }
+  }, [groupPatternCutoffRound, groupPatternMinCount, sortKey, sortAsc]);
+
+  const onSortHeader = useCallback((key: GroupPatternSortKey) => {
+    pendingScrollTop.current = tableScrollRef.current?.scrollTop ?? null;
+    setSortKey((prevKey) => {
+      if (prevKey === key) {
+        setSortAsc((a) => !a);
+        return prevKey;
+      }
+      setSortAsc(key === "pattern");
+      return key;
+    });
+  }, []);
+
+  type GpRow = {
+    pattern: string;
+    count: number;
+    pct: number;
+    lastR: number | null;
+    deltaLatest: number | null;
+    deltaPrev: number | null;
+    avgGap: number | null;
+  };
+
+  const sortedEntriesCount = useMemo(() => {
+    if (!dist) return [];
+    return Object.entries(dist).sort((a, b) => b[1] - a[1]);
+  }, [dist]);
+
+  const filteredEntries = useMemo(() => {
+    let list = sortedEntriesCount.filter(([, count]) => count >= groupPatternMinCount);
+    if (groupPatternCutoffRound != null) {
+      list = list.filter(([pattern]) => {
+        const roundsAsc = roundLists[pattern] ?? [];
+        const lastR = roundsAsc.length > 0 ? roundsAsc[roundsAsc.length - 1] : null;
+        return lastR != null && lastR >= groupPatternCutoffRound;
+      });
+    }
+    return list;
+  }, [sortedEntriesCount, groupPatternCutoffRound, groupPatternMinCount, roundLists]);
+
+  const rows: GpRow[] = useMemo(() => {
+    return filteredEntries.map(([pattern, count]) => {
+      const roundsAsc = roundLists[pattern] ?? [];
+      const lastR = roundsAsc.length > 0 ? roundsAsc[roundsAsc.length - 1] : null;
+      const prevR = roundsAsc.length >= 2 ? roundsAsc[roundsAsc.length - 2] : null;
+      const deltaLatest =
+        latestRound != null && lastR != null ? latestRound - lastR : null;
+      const deltaPrev =
+        count >= 2 && lastR != null && prevR != null ? lastR - prevR : null;
+      const avgGap = avgConsecutiveRoundGap(roundsAsc);
+      return {
+        pattern,
+        count,
+        pct: (count / total) * 100,
+        lastR,
+        deltaLatest,
+        deltaPrev,
+        avgGap,
+      };
+    });
+  }, [filteredEntries, roundLists, latestRound, total]);
+
+  const entries = useMemo(() => {
+    const asc = sortAsc;
+    const copy = [...rows];
+    copy.sort((ra, rb) => {
+      let d = 0;
+      switch (sortKey) {
+        case "pattern": {
+          d = ra.pattern.localeCompare(rb.pattern, undefined, { numeric: true });
+          if (!asc) d = -d;
+          break;
+        }
+        case "count":
+          d = cmpOptNum(ra.count, rb.count, asc);
+          break;
+        case "pct":
+          d = cmpOptNum(ra.pct, rb.pct, asc);
+          break;
+        case "last":
+          d = cmpOptNum(ra.lastR, rb.lastR, asc);
+          break;
+        case "deltaLatest":
+          d = cmpOptNum(ra.deltaLatest, rb.deltaLatest, asc);
+          break;
+        case "deltaPrev":
+          d = cmpOptNum(ra.deltaPrev, rb.deltaPrev, asc);
+          break;
+        case "avgGap":
+          d = cmpOptNum(ra.avgGap, rb.avgGap, asc);
+          break;
+        default:
+          d = 0;
+      }
+      if (d !== 0) return d;
+      return ra.pattern.localeCompare(rb.pattern, undefined, { numeric: true });
+    });
+    return copy;
+  }, [rows, sortKey, sortAsc]);
+
+  if (!dist || analysis.totalRounds <= 0) return null;
+
+  const maxCount = entries.length > 0 ? Math.max(...entries.map((r) => r.count)) : 0;
+
+  const sortIndicator = (key: GroupPatternSortKey) => {
+    if (sortKey !== key) return "";
+    return sortAsc ? " ▲" : " ▼";
+  };
+
+  const thBtn = (key: GroupPatternSortKey, align: "left" | "right", label: string, title?: string) => (
+    <th className={`px-0.5 py-1 ${align === "left" ? "text-left" : "text-right"} font-medium border-b border-slate-600`}>
+      <button
+        type="button"
+        title={title ? `${title} (클릭하여 정렬)` : "클릭하여 정렬"}
+        onClick={() => onSortHeader(key)}
+        className={`inline-flex w-full items-center gap-0.5 ${align === "left" ? "justify-start" : "justify-end"} text-slate-400 hover:text-slate-200 cursor-pointer select-none`}
+      >
+        <span>
+          {label}
+          {sortIndicator(key)}
+        </span>
+      </button>
+    </th>
+  );
+
+  const applyFilters = () => {
+    const saved = tableScrollRef.current?.scrollTop ?? null;
+    pendingScrollTop.current = saved;
+
+    const t = cutoffDraft.trim();
+    if (t === "") setGroupPatternCutoffRound(null);
+    else {
+      const n = parseInt(t, 10);
+      if (!Number.isNaN(n) && n >= 1) setGroupPatternCutoffRound(n);
+    }
+
+    const tm = minCountDraft.trim();
+    if (tm === "") setGroupPatternMinCount(5);
+    else {
+      const m = parseInt(tm, 10);
+      if (!Number.isNaN(m) && m >= 1) setGroupPatternMinCount(m);
+    }
+  };
+
+  return (
+    <div className="rounded-lg bg-slate-700/40 p-3 space-y-2">
+      <p className="text-slate-400 text-xs font-medium">5그룹 패턴 (본번호 6개만, 보너스 제외)</p>
+      <p className="text-slate-500 text-[11px] leading-relaxed">
+        자리 순서: 1~9 · 10~18 · 19~27 · 28~36 · 37~45 — 각 자리는 해당 구간에 속한 번호 개수(0~6).
+        예: 7,17,24,26,37,44 → <span className="text-slate-300 font-mono">11202</span>
+      </p>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+        <label className="flex items-center gap-1.5 text-slate-400 shrink-0">
+          기준 회차
+          <input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={latestRound ?? undefined}
+            placeholder="전체"
+            title="입력 후 적용 시 반영. 비우고 적용하면 필터 해제"
+            value={cutoffDraft}
+            onChange={(e) => setCutoffDraft(e.target.value)}
+            className="w-20 rounded border border-slate-600 bg-slate-800/80 px-1.5 py-0.5 text-slate-200 text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-slate-400 shrink-0">
+          기준 건수
+          <input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            placeholder="5"
+            title="적용 시 전체 출현 건수가 이 값 미만인 패턴은 숨김. 비우고 적용하면 5"
+            value={minCountDraft}
+            onChange={(e) => setMinCountDraft(e.target.value)}
+            className="w-14 rounded border border-slate-600 bg-slate-800/80 px-1.5 py-0.5 text-slate-200 text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={applyFilters}
+          className="shrink-0 rounded bg-sky-600/90 px-2.5 py-0.5 text-[11px] font-medium text-white hover:bg-sky-500"
+        >
+          적용
+        </button>
+        <span className="text-slate-500">
+          마지막 출현·건수 필터는 적용 후 반영
+        </span>
+      </div>
+      <div ref={tableScrollRef} className="max-h-[min(28rem,70vh)] overflow-y-auto rounded border border-slate-600/60">
+        <table className="w-full table-fixed border-collapse text-[10px] leading-tight sm:text-[11px] sm:leading-snug">
+          <colgroup>
+            <col className="w-[15%]" />
+            <col className="w-[9%]" />
+            <col className="w-[10%]" />
+            <col className="w-[14%]" />
+            <col className="w-[13%]" />
+            <col className="w-[13%]" />
+            <col className="w-[13%]" />
+          </colgroup>
+          <thead className="sticky top-0 z-[1] bg-slate-800/95 backdrop-blur-sm">
+            <tr>
+              {thBtn("pattern", "left", "패턴")}
+              {thBtn("count", "right", "건")}
+              {thBtn("pct", "right", "%")}
+              {thBtn("last", "right", "마지막", "이 패턴이 데이터에서 가장 마지막으로 나온 회차")}
+              {thBtn("deltaLatest", "right", "최종Δ", "데이터 최종 회차 − 이 패턴이 가장 최근에 나온 회차")}
+              {thBtn("deltaPrev", "right", "직전Δ", "건수 2회 이상일 때만: 최근 출현 회차 − 그 직전 출현 회차")}
+              {thBtn(
+                "avgGap",
+                "right",
+                "평균Δ",
+                "연속 출현 간 회차 차이의 평균 (전체 출현이 2회 미만이면 없음)"
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((row) => {
+              const { pattern, count, pct, lastR, deltaLatest, deltaPrev, avgGap } = row;
+              const pctStr = pct.toFixed(2);
+              const avgGapStr = avgGap != null ? avgGap.toFixed(1) : "—";
+              const intensity = maxCount > 0 ? count / maxCount : 0;
+              const bg = `rgba(56, 189, 248, ${0.12 + 0.35 * intensity})`;
+              return (
+                <tr key={pattern} style={{ backgroundColor: bg }}>
+                  <td className="px-0.5 py-0.5 font-mono text-slate-200 tracking-tight">{pattern}</td>
+                  <td className="px-0.5 py-0.5 text-right text-sky-300/90 font-medium tabular-nums">{count}</td>
+                  <td className="px-0.5 py-0.5 text-right text-slate-400 tabular-nums">{pctStr}%</td>
+                  <td className="px-0.5 py-0.5 text-right text-slate-200 tabular-nums whitespace-nowrap">
+                    {lastR != null ? lastR : "—"}
+                  </td>
+                  <td className="px-0.5 py-0.5 text-right text-slate-200 whitespace-nowrap tabular-nums">
+                    {deltaLatest != null ? deltaLatest : "—"}
+                  </td>
+                  <td className="px-0.5 py-0.5 text-right text-slate-200 whitespace-nowrap tabular-nums">
+                    {deltaPrev != null ? deltaPrev : "—"}
+                  </td>
+                  <td className="px-0.5 py-0.5 text-right text-slate-200 whitespace-nowrap tabular-nums">
+                    {avgGapStr}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-slate-500 text-[11px]">
+        표시 {entries.length}종 / 전체 {sortedEntriesCount.length}종
+        {groupPatternCutoffRound != null ? ` · 마지막 출현 ≥ ${groupPatternCutoffRound}` : ""}
+        {` · 출현 건수 ≥ ${groupPatternMinCount}`}
+        {" · "}
+        최종 회차:{" "}
+        {latestRound != null ? (
+          <span className="text-slate-400">{latestRound}</span>
+        ) : (
+          <span className="text-slate-600">—</span>
+        )}
+      </p>
+    </div>
+  );
+}
+
+function AnalysisResultView({
+  analysis,
+  rounds,
+  groupPatternCutoffRound,
+  setGroupPatternCutoffRound,
+  groupPatternMinCount,
+  setGroupPatternMinCount,
+}: {
+  analysis: AnalysisResult;
+  rounds?: { round: number; sum: number }[];
+  groupPatternCutoffRound: number | null;
+  setGroupPatternCutoffRound: (v: number | null) => void;
+  groupPatternMinCount: number;
+  setGroupPatternMinCount: (v: number) => void;
+}) {
   const sumEntries = analysis.sumPattern?.histogram
     ? Object.entries(analysis.sumPattern.histogram)
         .sort((a, b) => b[1] - a[1])
@@ -343,6 +689,16 @@ function AnalysisResultView({ analysis, rounds }: { analysis: AnalysisResult; ro
           </div>
         );
       })()}
+
+      {analysis.groupPatternDistribution && analysis.totalRounds > 0 ? (
+        <GroupPatternBlock
+          analysis={analysis}
+          groupPatternCutoffRound={groupPatternCutoffRound}
+          setGroupPatternCutoffRound={setGroupPatternCutoffRound}
+          groupPatternMinCount={groupPatternMinCount}
+          setGroupPatternMinCount={setGroupPatternMinCount}
+        />
+      ) : null}
     </div>
   );
 }
@@ -518,6 +874,9 @@ export function LottoPageBody() {
     cold: number[];
     sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> };
     group9_45Distribution?: Record<string, number>;
+    groupPatternDistribution?: Record<string, number>;
+    groupPatternRounds?: Record<string, number[]>;
+    latestRound?: number;
     consecutivePattern?: {
       avgConsecutivePairs: number;
       avgMaxRun: number;
@@ -526,6 +885,10 @@ export function LottoPageBody() {
     };
     updatedAt: string;
   } | null>(null);
+  /** 5그룹 패턴 표: 마지막 출현 회차가 이 값 미만이면 행 숨김. null이면 필터 없음 */
+  const [groupPatternCutoffRound, setGroupPatternCutoffRound] = useState<number | null>(1100);
+  /** 5그룹 패턴 표: 전체 출현 건수가 이 값 미만이면 행 숨김 */
+  const [groupPatternMinCount, setGroupPatternMinCount] = useState(5);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [saveDrawnLoading, setSaveDrawnLoading] = useState(false);
   const [saveDrawnMessage, setSaveDrawnMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
@@ -644,7 +1007,13 @@ export function LottoPageBody() {
         if (json.analysis) {
           setAnalysis(json.analysis);
           const has94 = json.analysis.group9_45Distribution && Object.keys(json.analysis.group9_45Distribution).length > 0;
-          if (json.analysis.totalRounds > 0 && !has94) {
+          const hasGroupPattern =
+            json.analysis.groupPatternDistribution && Object.keys(json.analysis.groupPatternDistribution).length > 0;
+          const hasGroupPatternRoundDetail =
+            json.analysis.groupPatternRounds &&
+            Object.keys(json.analysis.groupPatternRounds).length > 0 &&
+            typeof json.analysis.latestRound === "number";
+          if (json.analysis.totalRounds > 0 && (!has94 || !hasGroupPattern || !hasGroupPatternRoundDetail)) {
             setAnalysisLoading(true);
             try {
               const res = await fetch("/api/analyze-lotto", { method: "POST" });
@@ -1070,6 +1439,10 @@ export function LottoPageBody() {
       React.createElement(AnalysisResultView, {
         ...props,
         rounds: allRounds.map(r => ({ round: r.round, sum: r.n1 + r.n2 + r.n3 + r.n4 + r.n5 + r.n6 })),
+        groupPatternCutoffRound,
+        setGroupPatternCutoffRound,
+        groupPatternMinCount,
+        setGroupPatternMinCount,
       }),
     SumHistogramChart,
   };
