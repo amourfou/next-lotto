@@ -17,7 +17,7 @@ type Scope = {
   groupAtMost: Record<number, boolean>;
   seedLoading: boolean;
   seedMessage: { type: "ok" | "error"; text: string } | null;
-  activeTab: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "prevRound";
+  activeTab: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound";
   sumMin: number | null;
   sumMax: number | null;
   maxConsecutivePairs: number | null;
@@ -42,7 +42,7 @@ type Scope = {
   handleGroupCountChange: (groupKey: number, value: number) => void;
   handleToggleGroupEnabled: (groupKey: number) => void;
   handleSetGroupAtMost: (groupKey: number, atMost: boolean) => void;
-  TABS: { id: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "prevRound"; label: string }[];
+  TABS: { id: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound"; label: string }[];
   mustInclude: number[];
   mustExclude: number[];
   atLeastOne: number[];
@@ -58,7 +58,7 @@ type Scope = {
   setSumMin: (v: number | null) => void;
   setSumMax: (v: number | null) => void;
   setMaxConsecutivePairs: (v: number | null) => void;
-  setActiveTab: (v: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "prevRound") => void;
+  setActiveTab: (v: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound") => void;
   selectedOddEvenKeys: Set<string>;
   toggleOddEvenKey: (key: string) => void;
   fetchExclusionData: () => void;
@@ -174,7 +174,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
   };
 
   return (
-    <main className="flex flex-col items-center p-6 pb-12">
+    <main className="flex flex-col items-center w-full flex-1 min-h-0 overflow-y-auto p-6 pb-12">
       <div className="w-full max-w-[1400px] flex border-b border-slate-600/50 mb-6">
         {(["draw", "stats"] as const).map((tab) => (
           <button
@@ -767,6 +767,94 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                   <p className="text-slate-500 text-xs text-center">번호를 뽑은 뒤 설정은 계정 DB에 저장됩니다.</p>
                 </div>
               )}
+              {s.activeTab === "repeatAppear" && (() => {
+                const numBg = (n: number) =>
+                  n <= 9 ? "bg-yellow-500" :
+                  n <= 18 ? "bg-blue-500" :
+                  n <= 27 ? "bg-red-500" :
+                  n <= 36 ? "bg-slate-500" :
+                  "bg-green-600";
+
+                type RepeatStat = { repeat: number; total: number; prob: number };
+                const stats = new Map<number, RepeatStat>();
+                for (let n = 1; n <= 45; n++) stats.set(n, { repeat: 0, total: 0, prob: 0 });
+
+                const sorted = [...s.allRounds].sort((a, b) => a.round - b.round);
+                for (let i = 1; i < sorted.length; i++) {
+                  const prev = sorted[i - 1];
+                  const next = sorted[i];
+                  if (next.round !== prev.round + 1) continue;
+                  const prevNums = [prev.n1, prev.n2, prev.n3, prev.n4, prev.n5, prev.n6];
+                  const nextSet = new Set([next.n1, next.n2, next.n3, next.n4, next.n5, next.n6]);
+                  for (const n of prevNums) {
+                    const cur = stats.get(n)!;
+                    cur.total++;
+                    if (nextSet.has(n)) cur.repeat++;
+                  }
+                }
+                for (let n = 1; n <= 45; n++) {
+                  const cur = stats.get(n)!;
+                  cur.prob = cur.total > 0 ? cur.repeat / cur.total : 0;
+                }
+
+                const maxProb = Math.max(...Array.from(stats.values()).map((v) => v.prob), 0.001);
+                let pairCount = 0;
+                for (let i = 1; i < sorted.length; i++) {
+                  if (sorted[i].round === sorted[i - 1].round + 1) pairCount++;
+                }
+
+                const ranked = Array.from({ length: 45 }, (_, i) => i + 1).sort((a, b) => {
+                  const pa = stats.get(a)!.prob;
+                  const pb = stats.get(b)!.prob;
+                  if (pb !== pa) return pb - pa;
+                  return a - b;
+                });
+
+                return (
+                  <div className="space-y-3 max-w-2xl mx-auto">
+                    <h2 className="text-slate-400 font-semibold text-sm text-center">
+                      연속 출현 확률 (직전 회차 당첨번호 → 다음 회차)
+                    </h2>
+                    <p className="text-slate-500 text-xs text-center">
+                      번호별로 직전 회차에 나온 뒤 바로 다음 회차에도 나온 비율입니다. (당첨번호 6개 기준, {pairCount}쌍 분석, 확률 높은 순)
+                    </p>
+                    {s.allRoundsLoading && (
+                      <p className="text-slate-500 text-xs text-center py-4">불러오는 중..</p>
+                    )}
+                    {!s.allRoundsLoading && pairCount === 0 && (
+                      <p className="text-slate-500 text-sm text-center py-4">당첨 번호 데이터를 불러오면 통계가 표시됩니다.</p>
+                    )}
+                    {!s.allRoundsLoading && pairCount > 0 && (
+                      <div className="grid grid-cols-9 gap-1.5">
+                        {ranked.map((n) => {
+                          const { repeat, total, prob } = stats.get(n)!;
+                          const pct = (prob * 100).toFixed(1);
+                          const barW = Math.round((prob / maxProb) * 100);
+                          return (
+                            <div
+                              key={n}
+                              className="rounded-lg border border-slate-600/50 bg-slate-700/30 p-1.5 flex flex-col items-center gap-1"
+                              title={`${repeat}/${total}회 (${pct}%)`}
+                            >
+                              <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-bold ${numBg(n)}`}>
+                                {n}
+                              </span>
+                              <div className="w-full h-1.5 rounded-full bg-slate-600/60 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-teal-400/80"
+                                  style={{ width: `${barW}%` }}
+                                />
+                              </div>
+                              <span className="text-[10px] text-slate-300 font-semibold leading-none">{pct}%</span>
+                              <span className="text-[9px] text-slate-500 leading-none">{repeat}/{total}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               {s.activeTab === "prevRound" && (() => {
                 const numBg = (n: number) =>
                   n <= 9 ? "bg-yellow-500" :
@@ -792,8 +880,9 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                       }).sort((a, b) => a - b).filter((v, i, a) => a.indexOf(v) === i).join(", ") : "없음"}
                     </div>
                     {s.allRoundsLoading && <p className="text-slate-500 text-xs text-center py-4">불러오는 중..</p>}
-                    <div className="flex gap-3 items-start">
-                    <div className="overflow-x-auto overflow-y-auto max-h-[504px]">
+                    <div className="overflow-x-auto">
+                    <div className="flex shrink-0 items-start">
+                    <div className="overflow-x-auto overflow-y-auto max-h-[calc(100dvh-18rem)]">
                       <table className="text-xs border-collapse">
                         <thead className="sticky top-0 bg-slate-700 z-10">
                           <tr className="text-slate-200 text-center">
@@ -916,8 +1005,8 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                       const maxRatio = Math.max(...stats);
                       const sorted = [...stats].sort((a, b) => b - a);
                       return (
-                        <div className="shrink-0 overflow-y-auto max-h-[504px]">
-                          <div className="sticky top-0 bg-slate-700 text-slate-200 text-xs font-medium text-center pb-1 mb-0">비율</div>
+                        <div className="shrink-0 overflow-y-auto max-h-[calc(100dvh-18rem)] border-l border-slate-600/50">
+                          <div className="sticky top-0 bg-slate-700 text-slate-200 text-xs font-medium text-center pb-1 mb-0 border-b border-slate-600/50">비율</div>
                           {stats.map((ratio, k) => {
                             const pct = (ratio * 100).toFixed(1);
                             const barW = maxRatio > 0 ? (ratio / maxRatio) * 48 : 0;
@@ -934,6 +1023,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                         </div>
                       );
                     })()}
+                    </div>
                     </div>
                   </div>
                 );

@@ -854,7 +854,7 @@ export function LottoPageBody() {
   const [groupAtMost, setGroupAtMost] = useState<GroupAtMost>(getDefaultGroupAtMost);
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedMessage, setSeedMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<"number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "prevRound">("number");
+  const [activeTab, setActiveTab] = useState<"number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound">("number");
   const [sumMin, setSumMin] = useState<number | null>(null);
   const [sumMax, setSumMax] = useState<number | null>(null);
   const [maxConsecutivePairs, setMaxConsecutivePairs] = useState<number | null>(null);
@@ -1153,7 +1153,8 @@ export function LottoPageBody() {
     { id: "group9_45" as const, label: "9·45 조합" },
     { id: "sum" as const, label: "합계" },
     { id: "oddEven" as const, label: "홀짝" },
-    { id: "consecutive" as const, label: "연속" },
+    { id: "consecutive" as const, label: "연속번호" },
+    { id: "repeatAppear" as const, label: "연속출현" },
     { id: "prevRound" as const, label: "이전 회차" },
   ];
 
@@ -1423,7 +1424,7 @@ export function LottoPageBody() {
     games, setGames, gameCount, setGameCount, isDrawing, filterStates, currentCategory,
     groupCounts, groupEnabled, groupAtMost, seedLoading, seedMessage, activeTab, setActiveTab: (tab: typeof activeTab) => {
       setActiveTab(tab);
-      if (tab === "prevRound" || tab === "sum" || tab === "oddEven") loadAllRounds();
+      if (tab === "prevRound" || tab === "repeatAppear" || tab === "sum" || tab === "oddEven") loadAllRounds();
     }, sumMin, sumMax,
     maxConsecutivePairs, selectedGroup9_45Keys, toggleGroup9_45Key, runAnalysis, savedRounds, savedRoundsLoading, allRounds, allRoundsLoading, mainTab, setMainTab, analysis, analysisLoading,
     saveDrawnLoading, saveDrawnMessage, fetchDbScreenData, handleDraw, canDraw, nextRound: resolvedNextRound,

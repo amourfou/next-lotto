@@ -8,8 +8,8 @@ export function LottoPage() {
   const [pageTab, setPageTab] = useState<"lotto" | "pension">("lotto");
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
-      <div className="flex border-b border-slate-600/50 px-4 pt-3">
+    <div className="h-dvh flex flex-col overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
+      <div className="flex shrink-0 border-b border-slate-600/50 px-4 pt-3">
         {(["lotto", "pension"] as const).map((tab) => (
           <button
             key={tab}
@@ -25,7 +25,9 @@ export function LottoPage() {
           </button>
         ))}
       </div>
-      {pageTab === "lotto" ? <LottoPageBody /> : <PensionPageContent />}
+      <div className="flex flex-1 min-h-0 flex-col">
+        {pageTab === "lotto" ? <LottoPageBody /> : <PensionPageContent />}
+      </div>
     </div>
   );
 }
