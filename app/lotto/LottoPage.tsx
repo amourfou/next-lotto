@@ -8,7 +8,11 @@ export function LottoPage() {
   const [pageTab, setPageTab] = useState<"lotto" | "pension">("lotto");
 
   return (
-    <div className="h-dvh flex flex-col overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
+    <div
+      className={`flex flex-col bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 ${
+        pageTab === "lotto" ? "h-dvh overflow-hidden" : "min-h-screen"
+      }`}
+    >
       <div className="flex shrink-0 border-b border-slate-600/50 px-4 pt-3">
         {(["lotto", "pension"] as const).map((tab) => (
           <button
@@ -25,7 +29,7 @@ export function LottoPage() {
           </button>
         ))}
       </div>
-      <div className="flex flex-1 min-h-0 flex-col">
+      <div className={pageTab === "lotto" ? "flex flex-1 min-h-0 flex-col" : ""}>
         {pageTab === "lotto" ? <LottoPageBody /> : <PensionPageContent />}
       </div>
     </div>
