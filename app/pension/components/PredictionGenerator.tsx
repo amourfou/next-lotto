@@ -14,10 +14,34 @@ export interface PredictionOptions {
   selectedPatterns?: string[];
   /** 사용자가 선택한 중복 숫자 목록 (0~9). 비어 있으면 자동(가중치 랜덤) */
   selectedDuplicateDigits?: number[];
+  /** 자리별 고정 숫자 (0~9). null이면 해당 자리 자동 생성 */
+  fixedDigits?: (number | null)[];
   /** 합계를 ±1σ 범위로 제한 */
   limitToStdDev?: boolean;
   /** 최근 회차 합계 추이를 목표 합계에 반영 */
   useRecentTrend?: boolean;
+}
+
+function getFixedDigit(fixed: (number | null)[] | undefined, pos: number): number | null {
+  if (!fixed || pos < 0 || pos >= 6) return null;
+  const v = fixed[pos];
+  if (v === null || v === undefined) return null;
+  if (v >= 0 && v <= 9) return v;
+  return null;
+}
+
+function hasFixedDigits(fixed?: (number | null)[]): boolean {
+  return (fixed ?? []).some((d) => d !== null && d !== undefined && d >= 0 && d <= 9);
+}
+
+function applyFixedDigits(digits: number[], fixed?: (number | null)[]): number[] {
+  if (!hasFixedDigits(fixed)) return digits;
+  const result = [...digits];
+  for (let i = 0; i < 6; i++) {
+    const v = getFixedDigit(fixed, i);
+    if (v !== null) result[i] = v;
+  }
+  return result;
 }
 
 const DIGIT_COLORS: Record<number, string> = {
@@ -387,9 +411,10 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
     }
   }
   
-  // 사용자가 배치 패턴 또는 중복 숫자를 지정했으면, 이후 합계/직전회차 조정을 하지 않아 선택이 유지되도록 함
+  // 사용자가 배치 패턴·중복 숫자·자리 고정을 지정했으면, 이후 합계/직전회차 조정을 하지 않아 선택이 유지되도록 함
   const userSpecifiedOptions = selectedPatternsList.length > 0 ||
-    (options?.selectedDuplicateDigits ?? []).length > 0;
+    (options?.selectedDuplicateDigits ?? []).length > 0 ||
+    hasFixedDigits(options?.fixedDigits);
 
   if (!userSpecifiedOptions) {
     let currentSum = generatedDigits.reduce((sum, d) => sum + d, 0);
@@ -476,7 +501,7 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
     }
   }
 
-  return generatedDigits;
+  return applyFixedDigits(generatedDigits, options?.fixedDigits);
 }
 
 export default function PredictionGenerator({ lotteryData, analyzedNumbers }: PredictionGeneratorProps) {
@@ -497,6 +522,7 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedPatternOptions, setSelectedPatternOptions] = useState<string[]>([]);
   const [selectedDuplicateDigitOptions, setSelectedDuplicateDigitOptions] = useState<number[]>([]);
+  const [fixedDigitByPosition, setFixedDigitByPosition] = useState<(number | null)[]>(() => Array(6).fill(null));
   const [limitToStdDevOption, setLimitToStdDevOption] = useState(false);
   const [useRecentTrendOption, setUseRecentTrendOption] = useState(false);
   const [gameRecommendations, setGameRecommendations] = useState<{ digit: { key: number; label: string; signalScore: number; overdueRatio: number; frequency: number; absenceCount: number; avgInterval: number; count: number }; pattern: string | null }[]>([]);
@@ -628,6 +654,7 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
       const genOpts = {
         selectedPatterns: selectedPatternOptions,
         selectedDuplicateDigits: selectedDuplicateDigitOptions,
+        fixedDigits: fixedDigitByPosition,
         limitToStdDev: limitToStdDevOption,
         useRecentTrend: useRecentTrendOption,
       };
@@ -1037,6 +1064,51 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
               })()}
             </div>
           </div>
+        </div>
+
+        {/* 자리별 숫자 지정 */}
+        <div className="bg-white rounded-lg border border-purple-100 p-2 mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-gray-600">자리별 숫자 지정</span>
+            {fixedDigitByPosition.some((d) => d !== null) && (
+              <button
+                type="button"
+                onClick={() => setFixedDigitByPosition(Array(6).fill(null))}
+                className="text-[10px] text-purple-400 hover:text-purple-600"
+              >
+                해제
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-6 gap-1.5">
+            {fixedDigitByPosition.map((digit, index) => (
+              <div key={index} className="flex flex-col items-center gap-1">
+                <span className="text-[10px] text-gray-500">{index + 1}번째</span>
+                <select
+                  value={digit === null ? '' : String(digit)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setFixedDigitByPosition((prev) => {
+                      const next = [...prev];
+                      next[index] = v === '' ? null : parseInt(v, 10);
+                      return next;
+                    });
+                  }}
+                  className="w-full rounded-md border border-gray-200 bg-white px-1 py-1.5 text-center text-xs text-gray-700 focus:border-purple-400 focus:outline-none"
+                >
+                  <option value="">자동</option>
+                  {Array.from({ length: 10 }, (_, d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-500 mt-2">
+            지정한 자리는 고정되고, 나머지 자리는 분석 기반으로 생성됩니다.
+          </p>
         </div>
 
         {/* 합계 옵션 + 뽑기 버튼 */}
