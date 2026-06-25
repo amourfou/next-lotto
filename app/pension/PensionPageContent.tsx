@@ -10,6 +10,7 @@ import DuplicatePatternAnalysis from './components/DuplicatePatternAnalysis';
 import PositionTransitionAnalysis from './components/PositionTransitionAnalysis';
 import PredictionGenerator from './components/PredictionGenerator';
 import DataAdder from './components/DataAdder';
+import WinningNumbersList from './components/WinningNumbersList';
 import { analyzeNumbers } from './lib/analysis';
 import { NumberAnalysis } from './types';
 import { LotteryData, loadLotteryData } from './lib/dataParser';
@@ -59,10 +60,6 @@ export function PensionPageContent() {
   return (
     <div className="bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-8">
-        {!isLoading && lotteryData.length > 0 && (
-          <PredictionGenerator lotteryData={lotteryData} analyzedNumbers={numbers} />
-        )}
-
         {loadError && (
           <div className="mb-4 p-4 bg-red-50 border border-red-300 rounded-lg text-red-700 text-sm">
             ⚠️ 데이터 로드 실패: {loadError}
@@ -81,57 +78,71 @@ export function PensionPageContent() {
             <p className="text-lg text-gray-600">연금복권 데이터를 로드하고 분석 중...</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
-            <div className="space-y-4 sm:space-y-6">
-              <div className="hidden md:block">
-                <DataAdder onDataAdded={handleDataReload} lotteryData={lotteryData} />
+          <div className="flex flex-col xl:flex-row gap-4 sm:gap-6 lg:gap-8 items-start">
+            {lotteryData.length > 0 && (
+              <aside className="w-full xl:w-80 shrink-0">
+                <WinningNumbersList lotteryData={lotteryData} />
+              </aside>
+            )}
+
+            <div className="flex-1 min-w-0 w-full">
+              {lotteryData.length > 0 && (
+                <PredictionGenerator lotteryData={lotteryData} analyzedNumbers={numbers} />
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
+                <div className="space-y-4 sm:space-y-6">
+                  <div className="hidden md:block">
+                    <DataAdder onDataAdded={handleDataReload} lotteryData={lotteryData} />
+                  </div>
+                  <DataLoader
+                    onDataLoaded={handleDataLoaded}
+                    onStatisticsLoaded={() => {}}
+                    lotteryData={lotteryData}
+                  />
+                </div>
+                <div className="lg:col-span-2">
+                  <AnalysisResults analysis={analysis} />
+                </div>
               </div>
-              <DataLoader
-                onDataLoaded={handleDataLoaded}
-                onStatisticsLoaded={() => {}}
-                lotteryData={lotteryData}
-              />
+
+              {lotteryData.length > 0 && (
+                <div className="mt-8 p-4 rounded-lg border-4 border-green-200 bg-green-50/80">
+                  <h2 className="text-xl font-bold text-green-800 mb-4">트렌드 차트</h2>
+                  <TrendChart lotteryData={lotteryData} />
+                </div>
+              )}
+
+              {lotteryData.length > 0 && (
+                <div className="mt-6 lg:mt-8">
+                  <TrendAnalysis lotteryData={lotteryData} />
+                </div>
+              )}
+
+              {lotteryData.length > 0 && (
+                <div className="mt-6 lg:mt-8">
+                  <DuplicatePatternAnalysis lotteryData={lotteryData} />
+                </div>
+              )}
+
+              {lotteryData.length > 0 && (
+                <div className="mt-6 lg:mt-8">
+                  <PositionTransitionAnalysis lotteryData={lotteryData} />
+                </div>
+              )}
+
+              {lotteryData.length > 0 && (
+                <div className="mt-6 lg:mt-8">
+                  <LotteryDataDisplay lotteryData={lotteryData} />
+                </div>
+              )}
+
+              <footer className="mt-8 lg:mt-12 text-center text-gray-500 px-2">
+                <p className="text-xs sm:text-sm">© 연금복권 패턴 분석기 - Next.js 기반 복권 분석 도구</p>
+              </footer>
             </div>
-            <div className="lg:col-span-2">
-              <AnalysisResults analysis={analysis} />
-            </div>
           </div>
         )}
-
-        {!isLoading && lotteryData.length > 0 && (
-          <div className="mt-8 p-4 rounded-lg border-4 border-green-200 bg-green-50/80">
-            <h2 className="text-xl font-bold text-green-800 mb-4">트렌드 차트</h2>
-            <TrendChart lotteryData={lotteryData} />
-          </div>
-        )}
-
-        {lotteryData.length > 0 && (
-          <div className="mt-6 lg:mt-8">
-            <TrendAnalysis lotteryData={lotteryData} />
-          </div>
-        )}
-
-        {lotteryData.length > 0 && (
-          <div className="mt-6 lg:mt-8">
-            <DuplicatePatternAnalysis lotteryData={lotteryData} />
-          </div>
-        )}
-
-        {lotteryData.length > 0 && (
-          <div className="mt-6 lg:mt-8">
-            <PositionTransitionAnalysis lotteryData={lotteryData} />
-          </div>
-        )}
-
-        {lotteryData.length > 0 && (
-          <div className="mt-6 lg:mt-8">
-            <LotteryDataDisplay lotteryData={lotteryData} />
-          </div>
-        )}
-
-        <footer className="mt-8 lg:mt-12 text-center text-gray-500 px-2">
-          <p className="text-xs sm:text-sm">© 연금복권 패턴 분석기 - Next.js 기반 복권 분석 도구</p>
-        </footer>
       </div>
     </div>
   );

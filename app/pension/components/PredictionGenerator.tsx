@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { LotteryData, analyzePositionFrequency, analyzeDigitSum, analyzeDuplicatePatterns, analyzeDuplicatePositionPatterns, analyzeDuplicateFrequency, analyzePreviousRoundComparison, analyzePositionTransition, analyzeFirstDigitComparison } from '../lib/dataParser';
 import { Sparkles, RefreshCw, Dice6, TrendingUp, TrendingDown, Save, Trash2, History, X } from 'lucide-react';
+import InfoTooltip from './InfoTooltip';
 
 interface PredictionGeneratorProps {
   lotteryData: LotteryData[];
@@ -977,6 +978,178 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
         </button>
       </div>
 
+      {predictedNumbers && (
+        <div className="mb-4 p-4 sm:p-6 bg-white rounded-lg border-2 border-purple-300">
+          <div className="mb-4">
+            <div className="relative flex items-center justify-center mb-2 min-h-[64px]">
+              <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 flex-wrap justify-center">
+                {predictedNumbers.map((num, index) => (
+                  <div key={index} className="flex flex-col items-center">
+                    <div
+                      className={`w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${digitColor(num)} text-white rounded-full flex items-center justify-center text-base sm:text-lg md:text-xl lg:text-2xl font-bold shadow-lg animate-pulse`}
+                    >
+                      {num}
+                    </div>
+                    {digitProbabilities[index] !== undefined && (
+                      <div className="mt-1 text-[9px] sm:text-[10px] md:text-xs font-semibold text-gray-600">
+                        {digitProbabilities[index].toFixed(1)}%
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[52px]"
+                title={isSaving ? '저장 중...' : `${nextRound ? `${nextRound}회차용으로 ` : ''}저장`}
+              >
+                {isSaving ? <RefreshCw className="animate-spin" size={16} /> : <Save size={16} />}
+                <span className="text-[10px] font-semibold leading-none">{isSaving ? '저장중' : '저장'}</span>
+              </button>
+            </div>
+            
+            {/* 직전 회차 정보 및 전이 확률 */}
+            {lastRoundDigits && (
+              <div className="mt-3 sm:mt-4 p-3 sm:p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-200">
+                <div className="flex items-center justify-center gap-0.5 mb-2 sm:mb-3">
+                  <span className="text-xs sm:text-sm font-semibold text-gray-700">
+                    직전 회차 대비 전이 확률
+                  </span>
+                  <InfoTooltip
+                    text="직전 회차 각 자리 숫자에서 생성된 숫자로 전이될 확률"
+                    width="w-72"
+                  />
+                </div>
+                {/* 데스크톱: 가로 배치 */}
+                <div className="hidden md:grid md:grid-cols-6 gap-2">
+                  {predictedNumbers.map((num, index) => {
+                    const prevDigit = lastRoundDigits[index];
+                    const transitionProb = transitionProbabilities[index] || 0;
+                    
+                    return (
+                      <div key={index} className="text-center">
+                        <div className="text-xs text-gray-600 mb-1">
+                          {index + 1}번째
+                        </div>
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <span className="text-sm font-bold text-gray-700">{prevDigit}</span>
+                          <span className="text-xs text-gray-400">→</span>
+                          <span className="text-sm font-bold text-indigo-600">{num}</span>
+                        </div>
+                        <div className={`text-xs font-bold ${
+                          transitionProb >= 20 ? 'text-green-600' :
+                          transitionProb >= 10 ? 'text-yellow-600' :
+                          transitionProb >= 5 ? 'text-orange-600' :
+                          'text-red-600'
+                        }`}>
+                          {transitionProb.toFixed(1)}%
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* 모바일/태블릿: 세로 배치 */}
+                <div className="md:hidden space-y-1.5 sm:space-y-2">
+                  {predictedNumbers.map((num, index) => {
+                    const prevDigit = lastRoundDigits[index];
+                    const transitionProb = transitionProbabilities[index] || 0;
+                    
+                    return (
+                      <div key={index} className="flex items-center justify-between p-2 bg-white rounded border border-indigo-100">
+                        <span className="text-xs text-gray-500 w-12 sm:w-16">{index + 1}번째</span>
+                        <div className={`flex-1 text-xs sm:text-sm font-bold text-center ${
+                          transitionProb >= 20 ? 'text-green-600' :
+                          transitionProb >= 10 ? 'text-yellow-600' :
+                          transitionProb >= 5 ? 'text-orange-600' :
+                          'text-red-600'
+                        }`}>
+                          {prevDigit}→{num} {transitionProb.toFixed(1)}%
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mt-3 sm:mt-4">
+            <div className="p-3 sm:p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-200">
+              <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 text-center">합계 정보</div>
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                <div className="text-center">
+                  <div className="text-[10px] sm:text-xs text-gray-600 mb-1">자릿수 합계</div>
+                  <div className="text-lg sm:text-xl font-bold text-green-600">
+                    {predictionSum}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-[10px] sm:text-xs text-gray-600 mb-1">평균 합계</div>
+                  <div className="text-lg sm:text-xl font-bold text-purple-600">
+                    {sumAnalysis.statistics.avgSum.toFixed(1)}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-[10px] sm:text-xs text-gray-600 mb-1">합계 차이</div>
+                  <div className={`text-lg sm:text-xl font-bold ${Math.abs(predictionSum! - sumAnalysis.statistics.avgSum) <= 5 ? 'text-green-600' : 'text-orange-600'}`}>
+                    {predictionSum && (predictionSum - sumAnalysis.statistics.avgSum).toFixed(1)}
+                  </div>
+                </div>
+              </div>
+              {predictionSum && (
+                <div className={`mt-2 sm:mt-3 pt-2 border-t text-[10px] sm:text-xs text-center ${
+                  predictionSum >= sumAnalysis.statistics.avgSum - 5 && predictionSum <= sumAnalysis.statistics.avgSum + 5
+                    ? 'border-green-200 text-green-700'
+                    : 'border-orange-200 text-orange-700'
+                }`}>
+                  {predictionSum < sumAnalysis.statistics.avgSum - 5 && '⚠️ 합계가 평균보다 낮습니다'}
+                  {predictionSum >= sumAnalysis.statistics.avgSum - 5 && predictionSum <= sumAnalysis.statistics.avgSum + 5 && '✅ 합계가 평균 범위 내입니다'}
+                  {predictionSum > sumAnalysis.statistics.avgSum + 5 && '⚠️ 합계가 평균보다 높습니다'}
+                </div>
+              )}
+            </div>
+            <div className="text-center p-3 sm:p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+              <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-2">배치 패턴</div>
+              {predictionPattern ? (
+                <>
+                  <div className="flex items-center justify-center gap-0.5 sm:gap-1 mb-2">
+                    <span className="text-base sm:text-lg md:text-xl font-bold text-gray-800 font-mono">
+                      {predictionPattern.split('').map((char, i) => {
+                        let colorClass = 'text-gray-400';
+                        if (char === 'O') colorClass = 'text-red-600';
+                        else if (char === 'A') colorClass = 'text-blue-600';
+                        return (
+                          <span key={i} className={colorClass}>
+                            {char}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  </div>
+                  {patternRank !== null && patternTotalCount !== null && (
+                    <div className="text-[10px] sm:text-xs font-bold text-purple-600 mt-1">
+                      패턴 순위: {patternRank}위 / {patternTotalCount}개 패턴 중
+                    </div>
+                  )}
+                  {duplicateDigit !== null && duplicateDigitRank !== null && duplicateDigitTotalCount !== null && (
+                    <div className="text-[10px] sm:text-xs font-bold text-orange-600 mt-1">
+                      중복 숫자 {duplicateDigit}: {duplicateDigitRank}위 / {duplicateDigitTotalCount}개 중
+                    </div>
+                  )}
+                </>
+              ) : null}
+            </div>
+          </div>
+
+          {saveMessage && (
+            <div className={`mt-2 text-xs text-center ${saveMessage.type === 'success' ? 'text-green-700' : 'text-red-600'}`}>
+              {saveMessage.text}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 배치 패턴 / 중복 숫자 선택 옵션 */}
       <div className="mb-4 p-3 sm:p-4 bg-white/70 rounded-lg border border-purple-200">
         <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-3">예측 옵션 (복수 선택 가능, 미선택 시 자동)</div>
@@ -1265,174 +1438,6 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
           </div>
         );
       })()}
-
-      {predictedNumbers && (
-        <div className="mt-4 sm:mt-6 p-4 sm:p-6 bg-white rounded-lg border-2 border-purple-300">
-          <div className="mb-4">
-            <div className="relative flex items-center justify-center mb-2 min-h-[64px]">
-              <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 flex-wrap justify-center">
-                {predictedNumbers.map((num, index) => (
-                  <div key={index} className="flex flex-col items-center">
-                    <div
-                      className={`w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${digitColor(num)} text-white rounded-full flex items-center justify-center text-base sm:text-lg md:text-xl lg:text-2xl font-bold shadow-lg animate-pulse`}
-                    >
-                      {num}
-                    </div>
-                    {digitProbabilities[index] !== undefined && (
-                      <div className="mt-1 text-[9px] sm:text-[10px] md:text-xs font-semibold text-gray-600">
-                        {digitProbabilities[index].toFixed(1)}%
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[52px]"
-                title={isSaving ? '저장 중...' : `${nextRound ? `${nextRound}회차용으로 ` : ''}저장`}
-              >
-                {isSaving ? <RefreshCw className="animate-spin" size={16} /> : <Save size={16} />}
-                <span className="text-[10px] font-semibold leading-none">{isSaving ? '저장중' : '저장'}</span>
-              </button>
-            </div>
-            
-            {/* 직전 회차 정보 및 전이 확률 */}
-            {lastRoundDigits && (
-              <div className="mt-3 sm:mt-4 p-3 sm:p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-200">
-                <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 text-center">
-                  직전 회차 대비 전이 확률
-                </div>
-                {/* 데스크톱: 가로 배치 */}
-                <div className="hidden md:grid md:grid-cols-6 gap-2">
-                  {predictedNumbers.map((num, index) => {
-                    const prevDigit = lastRoundDigits[index];
-                    const transitionProb = transitionProbabilities[index] || 0;
-                    
-                    return (
-                      <div key={index} className="text-center">
-                        <div className="text-xs text-gray-600 mb-1">
-                          {index + 1}번째
-                        </div>
-                        <div className="flex items-center justify-center gap-1 mb-1">
-                          <span className="text-sm font-bold text-gray-700">{prevDigit}</span>
-                          <span className="text-xs text-gray-400">→</span>
-                          <span className="text-sm font-bold text-indigo-600">{num}</span>
-                        </div>
-                        <div className={`text-xs font-bold ${
-                          transitionProb >= 20 ? 'text-green-600' :
-                          transitionProb >= 10 ? 'text-yellow-600' :
-                          transitionProb >= 5 ? 'text-orange-600' :
-                          'text-red-600'
-                        }`}>
-                          {transitionProb.toFixed(1)}%
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {/* 모바일/태블릿: 세로 배치 */}
-                <div className="md:hidden space-y-1.5 sm:space-y-2">
-                  {predictedNumbers.map((num, index) => {
-                    const prevDigit = lastRoundDigits[index];
-                    const transitionProb = transitionProbabilities[index] || 0;
-                    
-                    return (
-                      <div key={index} className="flex items-center justify-between p-2 bg-white rounded border border-indigo-100">
-                        <span className="text-xs text-gray-500 w-12 sm:w-16">{index + 1}번째</span>
-                        <div className={`flex-1 text-xs sm:text-sm font-bold text-center ${
-                          transitionProb >= 20 ? 'text-green-600' :
-                          transitionProb >= 10 ? 'text-yellow-600' :
-                          transitionProb >= 5 ? 'text-orange-600' :
-                          'text-red-600'
-                        }`}>
-                          {prevDigit}→{num} {transitionProb.toFixed(1)}%
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="mt-2 sm:mt-3 text-[10px] sm:text-xs text-gray-500 text-center px-1">
-                  직전 회차 각 자리 숫자에서 생성된 숫자로 전이될 확률
-                </div>
-              </div>
-            )}
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mt-3 sm:mt-4">
-            <div className="p-3 sm:p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-200">
-              <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 text-center">합계 정보</div>
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                <div className="text-center">
-                  <div className="text-[10px] sm:text-xs text-gray-600 mb-1">자릿수 합계</div>
-                  <div className="text-lg sm:text-xl font-bold text-green-600">
-                    {predictionSum}
-                  </div>
-                </div>
-                <div className="text-center">
-                  <div className="text-[10px] sm:text-xs text-gray-600 mb-1">평균 합계</div>
-                  <div className="text-lg sm:text-xl font-bold text-purple-600">
-                    {sumAnalysis.statistics.avgSum.toFixed(1)}
-                  </div>
-                </div>
-                <div className="text-center">
-                  <div className="text-[10px] sm:text-xs text-gray-600 mb-1">합계 차이</div>
-                  <div className={`text-lg sm:text-xl font-bold ${Math.abs(predictionSum! - sumAnalysis.statistics.avgSum) <= 5 ? 'text-green-600' : 'text-orange-600'}`}>
-                    {predictionSum && (predictionSum - sumAnalysis.statistics.avgSum).toFixed(1)}
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="text-center p-3 sm:p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-              <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-2">배치 패턴</div>
-              {predictionPattern ? (
-                <>
-                  <div className="flex items-center justify-center gap-0.5 sm:gap-1 mb-2">
-                    <span className="text-base sm:text-lg md:text-xl font-bold text-gray-800 font-mono">
-                      {predictionPattern.split('').map((char, i) => {
-                        let colorClass = 'text-gray-400';
-                        if (char === 'O') colorClass = 'text-red-600';
-                        else if (char === 'A') colorClass = 'text-blue-600';
-                        return (
-                          <span key={i} className={colorClass}>
-                            {char}
-                          </span>
-                        );
-                      })}
-                    </span>
-                  </div>
-                  {patternRank !== null && patternTotalCount !== null && (
-                    <div className="text-[10px] sm:text-xs font-bold text-purple-600 mt-1">
-                      패턴 순위: {patternRank}위 / {patternTotalCount}개 패턴 중
-                    </div>
-                  )}
-                  {duplicateDigit !== null && duplicateDigitRank !== null && duplicateDigitTotalCount !== null && (
-                    <div className="text-[10px] sm:text-xs font-bold text-orange-600 mt-1">
-                      중복 숫자 {duplicateDigit}: {duplicateDigitRank}위 / {duplicateDigitTotalCount}개 중
-                    </div>
-                  )}
-                </>
-              ) : null}
-            </div>
-          </div>
-          
-          {predictionSum && (
-            <div className="mt-3 sm:mt-4 p-2 sm:p-3 bg-gray-50 rounded-lg">
-              <div className="text-[10px] sm:text-xs text-gray-600 text-center">
-                {predictionSum < sumAnalysis.statistics.avgSum - 5 && '⚠️ 합계가 평균보다 낮습니다'}
-                {predictionSum >= sumAnalysis.statistics.avgSum - 5 && predictionSum <= sumAnalysis.statistics.avgSum + 5 && '✅ 합계가 평균 범위 내입니다'}
-                {predictionSum > sumAnalysis.statistics.avgSum + 5 && '⚠️ 합계가 평균보다 높습니다'}
-              </div>
-            </div>
-          )}
-
-          {saveMessage && (
-            <div className={`mt-2 text-xs text-center ${saveMessage.type === 'success' ? 'text-green-700' : 'text-red-600'}`}>
-              {saveMessage.text}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* 이전번호 히스토리 팝업 */}
       {isHistoryOpen && (
