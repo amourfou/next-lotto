@@ -570,7 +570,6 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
     setIsSaving(true);
     setSaveMessage(null);
     try {
-      // 기존 저장 목록에 현재 번호 추가해서 저장
       const newList = [...savedPredictions, predictedNumbers];
       const res = await fetch('/api/pension/save-drawn', {
         method: 'POST',

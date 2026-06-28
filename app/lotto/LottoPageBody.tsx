@@ -892,6 +892,7 @@ export function LottoPageBody() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [saveDrawnLoading, setSaveDrawnLoading] = useState(false);
   const [saveDrawnMessage, setSaveDrawnMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const [savedDrawnList, setSavedDrawnList] = useState<number[][]>([]);
   /** 페이지 로드 시 DB에서 조회해 둔 당첨/추출 6개 번호 세트 키 (뽑은 세트가 있으면 재추출) */
   const [exclusionWinningSetKeys, setExclusionWinningSetKeys] = useState<Set<string>>(new Set());
   const [exclusionDrawnSetKeys, setExclusionDrawnSetKeys] = useState<Set<string>>(new Set());
@@ -1057,6 +1058,19 @@ export function LottoPageBody() {
   useEffect(() => {
     fetchExclusionData();
   }, [fetchExclusionData]);
+
+  const loadSavedDrawn = useCallback(() => {
+    fetch("/api/lotto/drawn", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((json) => {
+        if (!json.error) setSavedDrawnList(json.games ?? []);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadSavedDrawn();
+  }, [loadSavedDrawn]);
 
   const loadAllRounds = useCallback(async () => {
     if (allRounds.length > 0) return;
@@ -1360,6 +1374,7 @@ export function LottoPageBody() {
       const forbiddenSetKeys = new Set<string>([
         ...Array.from(exclusionWinningSetKeys),
         ...Array.from(exclusionDrawnSetKeys),
+        ...savedDrawnList.map((r) => toSetKey(r)),
       ]);
       const maxSetRetry = 500;
       for (let i = 0; i < n; i++) {
@@ -1418,6 +1433,7 @@ export function LottoPageBody() {
     exclusionWinningSetKeys,
     exclusionDrawnSetKeys,
     prevRoundExclude,
+    savedDrawnList,
   ]);
 
   const scope = {
@@ -1428,6 +1444,7 @@ export function LottoPageBody() {
     }, sumMin, sumMax,
     maxConsecutivePairs, selectedGroup9_45Keys, toggleGroup9_45Key, runAnalysis, savedRounds, savedRoundsLoading, allRounds, allRoundsLoading, mainTab, setMainTab, analysis, analysisLoading,
     saveDrawnLoading, saveDrawnMessage, fetchDbScreenData, handleDraw, canDraw, nextRound: resolvedNextRound,
+    savedDrawnList, setSavedDrawnList, loadSavedDrawn,
     handleCategoryChange, handleNumberClick, handleGroupCountChange, handleToggleGroupEnabled, handleSetGroupAtMost,
     TABS, mustInclude, mustExclude, atLeastOne, useGroupCountMode, poolSize,
     setSaveDrawnMessage, setSaveDrawnLoading, setSavedRounds, setAnalysis, setAnalysisLoading, setSeedMessage, setSeedLoading,

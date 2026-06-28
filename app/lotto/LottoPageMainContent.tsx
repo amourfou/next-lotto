@@ -4,6 +4,149 @@ import React, { useCallback, useState } from "react";
 import NumberFilter, { type NumberFilterState, type FilterCategory } from "../components/NumberFilter";
 import GroupCountSelector from "../components/GroupCountSelector";
 
+function lottoBallFill(n: number): string {
+  if (n <= 9) return "#eab308";
+  if (n <= 18) return "#3b82f6";
+  if (n <= 27) return "#ef4444";
+  if (n <= 36) return "#64748b";
+  return "#16a34a";
+}
+
+function countGroup9(nums: number[]): number {
+  return nums.filter((n) => n >= 1 && n <= 9).length;
+}
+
+function countGroup45(nums: number[]): number {
+  return nums.filter((n) => n >= 37 && n <= 45).length;
+}
+
+function formatGroup9_45(nums: number[]): string {
+  return `${countGroup9(nums)},${countGroup45(nums)}`;
+}
+
+function getConsecutivePairs(nums: number[]): number {
+  const arr = [...nums].sort((a, b) => a - b);
+  let pairs = 0;
+  for (let i = 1; i < arr.length; i++) {
+    if (arr[i] === arr[i - 1] + 1) pairs += 1;
+  }
+  return pairs;
+}
+
+/** 홀:짝 (예: 3:3) */
+function formatOddEven(nums: number[]): string {
+  const even = nums.filter((n) => n % 2 === 0).length;
+  return `${nums.length - even}:${even}`;
+}
+
+function formatGroup5Pattern(nums: number[]): string {
+  const counts = [0, 0, 0, 0, 0];
+  for (const n of nums) {
+    if (n <= 9) counts[0]++;
+    else if (n <= 18) counts[1]++;
+    else if (n <= 27) counts[2]++;
+    else if (n <= 36) counts[3]++;
+    else counts[4]++;
+  }
+  return counts.join("-");
+}
+
+/** 팝업에 보이는 회차 블록과 동일한 레이아웃을 PNG로 클립보드에 복사 */
+async function copyRoundDisplayAsImage(round: number, games: number[][]): Promise<void> {
+  const pad = 6;
+  const headerGap = 4;
+  const headerH = 18;
+  const rowH = 26;
+  const idxW = 22;
+  const ballW = 28;
+  const ballH = 24;
+  const ballGap = 1;
+  const tablePadX = 6;
+  const tableW = tablePadX * 2 + idxW + 6 * ballW + 5 * ballGap;
+  const width = pad * 2 + tableW;
+  const tableTop = pad + headerH + headerGap;
+  const height = tableTop + games.length * rowH + pad;
+
+  const scale = 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas unavailable");
+  ctx.scale(scale, scale);
+
+  ctx.fillStyle = "#1e293b";
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = "#fbbf24";
+  ctx.font = "bold 13px system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(`${round}회`, pad, pad + 13);
+  ctx.fillStyle = "#64748b";
+  ctx.font = "11px system-ui, sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText(`${games.length}게임`, width - pad, pad + 13);
+  ctx.textAlign = "left";
+
+  const boxX = pad;
+  const boxY = tableTop;
+  const boxH = games.length * rowH;
+  ctx.fillStyle = "#1e293b";
+  ctx.beginPath();
+  ctx.roundRect(boxX, boxY, tableW, boxH, 8);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(100,116,139,0.4)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  games.forEach((nums, idx) => {
+    const y = boxY + idx * rowH;
+    if (idx > 0) {
+      ctx.strokeStyle = "rgba(100,116,139,0.3)";
+      ctx.beginPath();
+      ctx.moveTo(boxX, y);
+      ctx.lineTo(boxX + tableW, y);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = "#64748b";
+    ctx.font = "12px ui-monospace, monospace";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(idx + 1), boxX + tablePadX + idxW - 4, y + rowH / 2);
+
+    let x = boxX + tablePadX + idxW;
+    ctx.textAlign = "center";
+    for (const num of nums) {
+      ctx.fillStyle = lottoBallFill(num);
+      ctx.fillRect(x, y + (rowH - ballH) / 2, ballW, ballH);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 11px system-ui, sans-serif";
+      ctx.fillText(String(num), x + ballW / 2, y + rowH / 2);
+      x += ballW + ballGap;
+    }
+  });
+
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) throw new Error("image encode failed");
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+}
+
+async function copyRoundToClipboard(round: number, games: number[][]): Promise<void> {
+  try {
+    await copyRoundDisplayAsImage(round, games);
+  } catch {
+    const lines = [
+      `${round}회 · ${games.length}게임`,
+      ...games.map((nums, i) =>
+        `${String(i + 1).padStart(2)}  ${nums.map((n) => String(n).padStart(2)).join(" ")}`
+      ),
+    ];
+    await navigator.clipboard.writeText(lines.join("\n"));
+  }
+}
+
 type Scope = {
   games: number[][];
   setGames: (v: number[][] | ((prev: number[][]) => number[][])) => void;
@@ -66,6 +209,9 @@ type Scope = {
   setSelectedPrevRounds: (v: Set<number> | ((prev: Set<number>) => Set<number>)) => void;
   prevRoundExclude: number[];
   nextRound: number;
+  savedDrawnList: number[][];
+  setSavedDrawnList: (v: number[][] | ((prev: number[][]) => number[][])) => void;
+  loadSavedDrawn: () => void;
   MIN_GAMES: number;
   MAX_GAMES: number;
   SUM_RANGE: { min: number; max: number };
@@ -111,6 +257,33 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
   const [addWinningMessage, setAddWinningMessage] = useState<{ type: "ok" | "error"; text: string } | null>(
     null
   );
+
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historyData, setHistoryData] = useState<{ round: number; games: number[][] }[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
+  const lottoNumBg = (n: number) =>
+    n <= 9 ? "bg-yellow-500" :
+    n <= 18 ? "bg-blue-500" :
+    n <= 27 ? "bg-red-500" :
+    n <= 36 ? "bg-slate-500" :
+    "bg-green-600";
+
+  const toSetKey = (nums: number[]) => [...nums].sort((a, b) => a - b).join(",");
+
+  const handleOpenHistory = useCallback(async () => {
+    setIsHistoryOpen(true);
+    setIsHistoryLoading(true);
+    try {
+      const res = await fetch("/api/lotto/drawn/all", { cache: "no-store" });
+      const json = (await res.json()) as { error?: string; data?: { round: number; games: number[][] }[] };
+      if (!json.error) setHistoryData(json.data ?? []);
+    } catch {
+      // ignore
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  }, []);
 
   const openWinningForm = useCallback(async () => {
     setShowWinningForm(true);
@@ -257,10 +430,13 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
             s.setSaveDrawnMessage(null);
             s.setSaveDrawnLoading(true);
             try {
+              const existing = new Set(s.savedDrawnList.map((nums) => toSetKey(nums)));
+              const newOnes = s.games.filter((g) => !existing.has(toSetKey(g)));
+              const newList = [...s.savedDrawnList, ...newOnes];
               const res = await fetch("/api/lotto/save-drawn", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ games: s.games }),
+                body: JSON.stringify({ games: newList }),
               });
               const data = await res.json();
               if (!res.ok) {
@@ -268,6 +444,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                 return;
               }
               s.setSaveDrawnMessage({ type: "ok", text: data.message ?? "저장됨" });
+              s.setSavedDrawnList(newList);
               const listRes = await fetch("/api/lotto?limit=20");
               const listJson = await listRes.json();
               if (!listJson.error && listJson.data)
@@ -282,6 +459,14 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
           className="px-4 py-2.5 rounded-xl text-sm font-medium bg-slate-600 text-slate-200 hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {s.saveDrawnLoading ? "저장 중.." : "DB에 저장"}
+        </button>
+        <button
+          type="button"
+          onClick={handleOpenHistory}
+          className="px-4 py-2.5 rounded-xl text-sm font-medium bg-slate-600 text-slate-200 hover:bg-slate-500"
+          title="저장된 추출 번호 보기"
+        >
+          저장번호보기
         </button>
       </div>}
 
@@ -460,55 +645,45 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
           )}
 
           <div className="w-full flex gap-4 mt-2 items-start">
-            {/* 왼쪽: 뽑은 번호 결과 */}
+            {/* 왼쪽: 이번에 뽑은 번호 */}
             <div className="shrink-0">
-              {s.isDrawing && (() => {
-                return (
-                  <table className="text-xs border-collapse opacity-40">
+              {s.isDrawing && (
+                <table className="text-xs border-collapse opacity-40">
+                  <tbody>
+                    {Array.from({ length: Math.min(s.gameCount, 10) }).map((_, row) => (
+                      <tr key={row}>
+                        <td className="pr-2 text-slate-500 text-right">{row + 1}.</td>
+                        {Array.from({ length: 6 }).map((_, i) => (
+                          <td key={i} className="p-0 border border-slate-600/40">
+                            <div className="w-7 h-6 bg-slate-600 animate-pulse" style={{ animationDelay: `${(row * 6 + i) * 30}ms` }} />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {s.games.length > 0 && !s.isDrawing && (
+                <div>
+                  <p className="text-slate-400 text-xs font-medium mb-1">{s.nextRound}회</p>
+                  <table className="text-xs border-collapse">
                     <tbody>
-                      {Array.from({ length: Math.min(s.gameCount, 10) }).map((_, row) => (
+                      {s.games.map((nums, row) => (
                         <tr key={row}>
                           <td className="pr-2 text-slate-500 text-right">{row + 1}.</td>
-                          {Array.from({ length: 6 }).map((_, i) => (
+                          {nums.map((num, i) => (
                             <td key={i} className="p-0 border border-slate-600/40">
-                              <div className="w-7 h-6 bg-slate-600 animate-pulse" style={{ animationDelay: `${(row * 6 + i) * 30}ms` }} />
+                              <span className={`inline-flex items-center justify-center w-7 h-6 text-white font-bold ${lottoNumBg(num)}`}>
+                                {num}
+                              </span>
                             </td>
                           ))}
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                );
-              })()}
-              {s.games.length > 0 && !s.isDrawing && (() => {
-                const numBg = (n: number) =>
-                  n <= 9 ? "bg-yellow-500" :
-                  n <= 18 ? "bg-blue-500" :
-                  n <= 27 ? "bg-red-500" :
-                  n <= 36 ? "bg-slate-500" :
-                  "bg-green-600";
-                return (
-                  <div>
-                    <p className="text-slate-400 text-xs font-medium mb-1">{s.nextRound}회차용</p>
-                    <table className="text-xs border-collapse">
-                      <tbody>
-                        {s.games.map((nums, row) => (
-                          <tr key={row}>
-                            <td className="pr-2 text-slate-500 text-right">{row + 1}.</td>
-                            {nums.map((num, i) => (
-                              <td key={i} className="p-0 border border-slate-600/40">
-                                <span className={`inline-flex items-center justify-center w-7 h-6 text-white font-bold ${numBg(num)}`}>
-                                  {num}
-                                </span>
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                );
-              })()}
+                </div>
+              )}
               {s.saveDrawnMessage && (
                 <p className={`text-xs mt-1 ${s.saveDrawnMessage.type === "ok" ? "text-emerald-400" : "text-red-400"}`}>
                   {s.saveDrawnMessage.text}
@@ -1030,6 +1205,111 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
               })()}
             </div>
             </section>
+          </div>
+        </div>
+      )}
+
+      {isHistoryOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+          onClick={() => setIsHistoryOpen(false)}
+        >
+          <div
+            className="bg-slate-800 border border-slate-600/50 rounded-xl shadow-2xl w-max max-w-[95vw] max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-600/50 shrink-0">
+              <h3 className="text-base font-bold text-slate-100">저장된 추출 번호</h3>
+              <button
+                type="button"
+                onClick={() => setIsHistoryOpen(false)}
+                className="px-2 py-1 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-700/50 text-sm"
+              >
+                닫기
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 py-4 min-h-0 [scrollbar-width:thin]">
+              {isHistoryLoading ? (
+                <p className="text-sm text-slate-400 text-center py-8">불러오는 중…</p>
+              ) : historyData.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">저장된 번호가 없습니다.</p>
+              ) : (
+                <div className="space-y-3">
+                  {historyData.map(({ round, games }) => (
+                    <div key={round}>
+                      <div className="flex items-center justify-between mb-1 px-0.5">
+                        <span className="text-sm font-bold text-amber-400">{round}회</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500">{games.length}게임</span>
+                          <button
+                            type="button"
+                            onClick={() => void copyRoundToClipboard(round, games)}
+                            className="px-2 py-0.5 text-[11px] text-slate-300 border border-slate-600/50 rounded hover:bg-slate-700/50 transition-colors"
+                          >
+                            복사
+                          </button>
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-slate-600/40 overflow-x-auto w-fit max-w-full">
+                        <table className="w-auto text-xs border-collapse leading-none">
+                          <thead>
+                            <tr className="text-slate-500 border-b border-slate-600/30">
+                              <th className="py-px pr-1 pl-1.5 text-right font-medium w-6">#</th>
+                              <th className="py-px pr-1 text-left font-medium w-0 whitespace-nowrap">번호</th>
+                              <th className="py-px pl-1 pr-0.5 text-right font-medium whitespace-nowrap">합</th>
+                              <th className="py-px px-0.5 text-right font-medium whitespace-nowrap">홀짝</th>
+                              <th className="py-px px-0.5 text-right font-medium whitespace-nowrap">연속</th>
+                              <th className="py-px px-0.5 text-right font-medium whitespace-nowrap">5그룹</th>
+                              <th className="py-px pr-1.5 pl-0.5 text-right font-medium whitespace-nowrap">9·45</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {games.map((nums, idx) => {
+                              const sum = nums.reduce((a, b) => a + b, 0);
+                              const consecutive = getConsecutivePairs(nums);
+                              return (
+                                <tr key={idx} className={idx > 0 ? "border-t border-slate-600/30" : undefined}>
+                                  <td className="py-0 pr-1 pl-1.5 text-slate-500 text-right w-6 tabular-nums align-middle">
+                                    {idx + 1}
+                                  </td>
+                                  <td className="py-0 pr-1 w-0 whitespace-nowrap align-middle">
+                                    <div className="inline-flex gap-px">
+                                      {nums.map((num, i) => (
+                                        <span
+                                          key={i}
+                                          className={`inline-flex items-center justify-center w-7 h-6 text-white font-bold ${lottoNumBg(num)}`}
+                                        >
+                                          {num}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td className="py-0 pl-1 pr-0.5 text-slate-400 text-right tabular-nums align-middle whitespace-nowrap">
+                                    {sum}
+                                  </td>
+                                  <td className="py-0 px-0.5 text-slate-300 text-right tabular-nums align-middle font-mono whitespace-nowrap">
+                                    {formatOddEven(nums)}
+                                  </td>
+                                  <td className="py-0 px-0.5 text-slate-300 text-right tabular-nums align-middle whitespace-nowrap">
+                                    {consecutive}
+                                  </td>
+                                  <td className="py-0 px-0.5 text-slate-300 text-right tabular-nums align-middle font-mono text-[10px] whitespace-nowrap">
+                                    {formatGroup5Pattern(nums)}
+                                  </td>
+                                  <td className="py-0 pr-1.5 pl-0.5 text-slate-300 text-right tabular-nums align-middle font-mono whitespace-nowrap">
+                                    {formatGroup9_45(nums)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

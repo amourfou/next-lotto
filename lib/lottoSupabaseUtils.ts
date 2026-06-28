@@ -177,6 +177,39 @@ export async function insertLottoDrawnBatch(round: number, games: number[][]): P
   if (error) throw error;
 }
 
+/** lotto_drawn: 특정 회차의 추출 번호 조회. game_index 오름차순 */
+export async function getLottoDrawnByRound(round: number): Promise<number[][]> {
+  const { data, error } = await supabase
+    .from("lotto_drawn")
+    .select("n1, n2, n3, n4, n5, n6")
+    .eq("round", round)
+    .order("game_index", { ascending: true });
+  if (error) {
+    if (error.code === "42P01") return [];
+    throw error;
+  }
+  return (data ?? []).map((r) => [r.n1, r.n2, r.n3, r.n4, r.n5, r.n6]);
+}
+
+/** lotto_drawn: 전체 추출 번호 조회, 회차별 그룹. round 내림차순, game_index 오름차순 */
+export async function getAllLottoDrawnGrouped(): Promise<{ round: number; games: number[][] }[]> {
+  const { data, error } = await supabase
+    .from("lotto_drawn")
+    .select("round, game_index, n1, n2, n3, n4, n5, n6")
+    .order("round", { ascending: false })
+    .order("game_index", { ascending: true });
+  if (error) {
+    if (error.code === "42P01") return [];
+    throw error;
+  }
+  const map = new Map<number, number[][]>();
+  for (const r of data ?? []) {
+    if (!map.has(r.round)) map.set(r.round, []);
+    map.get(r.round)!.push([r.n1, r.n2, r.n3, r.n4, r.n5, r.n6]);
+  }
+  return Array.from(map.entries()).map(([round, games]) => ({ round, games }));
+}
+
 /** lotto_drawn 테이블에 저장된 모든 추출 번호 세트 (6개 번호 배열 목록) */
 export async function getAllLottoDrawnSets(): Promise<number[][]> {
   const sets: number[][] = [];
