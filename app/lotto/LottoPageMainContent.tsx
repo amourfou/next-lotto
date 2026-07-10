@@ -155,9 +155,8 @@ type Scope = {
   isDrawing: boolean;
   filterStates: Record<number, NumberFilterState>;
   currentCategory: FilterCategory;
-  groupCounts: Record<number, number>;
+  groupCountRanges: Record<number, { min: number; max: number }>;
   groupEnabled: Record<number, boolean>;
-  groupAtMost: Record<number, boolean>;
   seedLoading: boolean;
   seedMessage: { type: "ok" | "error"; text: string } | null;
   activeTab: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound";
@@ -182,9 +181,9 @@ type Scope = {
   canDraw: boolean;
   handleCategoryChange: (category: FilterCategory) => void;
   handleNumberClick: (num: number) => void;
-  handleGroupCountChange: (groupKey: number, value: number) => void;
+  handleGroupCountMinChange: (groupKey: number, value: number) => void;
+  handleGroupCountMaxChange: (groupKey: number, value: number) => void;
   handleToggleGroupEnabled: (groupKey: number) => void;
-  handleSetGroupAtMost: (groupKey: number, atMost: boolean) => void;
   TABS: { id: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound"; label: string }[];
   mustInclude: number[];
   mustExclude: number[];
@@ -641,7 +640,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
             <p className="text-amber-400/90 text-sm text-center">사용 가능 번호가 부족합니다 (현재 {s.poolSize}개)</p>
           )}
           {s.useGroupCountMode && !s.canDraw && (
-            <p className="text-amber-400/90 text-sm text-center">조건에 맞는 그룹별 개수를 꼭 넣을 번호가 개수에 맞게 들어가도록, 또는 이하로 채울 번호가 부족하면 뽑기가 불가합니다.</p>
+            <p className="text-amber-400/90 text-sm text-center">그룹별 개수 범위(n≤x≤m)와 꼭 넣을/뺄 번호 조건이 맞지 않아 뽑기가 불가합니다.</p>
           )}
 
           <div className="w-full flex gap-4 mt-2 items-start">
@@ -726,12 +725,11 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
               {s.activeTab === "group" && (
                 <div>
                   <GroupCountSelector
-                    groupCounts={s.groupCounts}
+                    groupCountRanges={s.groupCountRanges}
                     groupEnabled={s.groupEnabled}
-                    groupAtMost={s.groupAtMost}
-                    onChange={s.handleGroupCountChange}
+                    onChangeMin={s.handleGroupCountMinChange}
+                    onChangeMax={s.handleGroupCountMaxChange}
                     onToggleEnabled={s.handleToggleGroupEnabled}
-                    onSetAtMost={s.handleSetGroupAtMost}
                   />
                 </div>
               )}

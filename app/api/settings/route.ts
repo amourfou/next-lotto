@@ -9,9 +9,11 @@ export const dynamic = "force-dynamic";
 export type DrawSettingsPayload = {
   gameCount: number;
   filterStates: Record<number, string>;
-  groupCounts: Record<number, number>;
+  /** 그룹별 {min,max} 또는 구버전 number */
+  groupCounts: Record<number, number | { min: number; max: number }>;
   groupEnabled: Record<number, boolean>;
-  groupAtMost: Record<number, boolean>;
+  /** 구버전 지정/이하. 범위 저장 시 빈 객체 가능 */
+  groupAtMost?: Record<number, boolean>;
   patternSettings?: {
     sumMin?: number | null;
     sumMax?: number | null;
@@ -61,9 +63,9 @@ export async function GET() {
         id: row.id,
         gameCount: row.game_count,
         filterStates: parseFilterStates(row.filter_states),
-        groupCounts: JSON.parse(row.group_counts) as Record<number, number>,
+        groupCounts: JSON.parse(row.group_counts) as Record<number, number | { min: number; max: number }>,
         groupEnabled: JSON.parse(row.group_enabled) as Record<number, boolean>,
-        groupAtMost: JSON.parse(row.group_at_most) as Record<number, boolean>,
+        groupAtMost: JSON.parse(row.group_at_most || "{}") as Record<number, boolean>,
         patternSettings,
         createdAt: row.created_at,
       },

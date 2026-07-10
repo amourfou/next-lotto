@@ -6,13 +6,12 @@ import LottoBall from "../components/LottoBall";
 import NumberFilter, { type NumberFilterState, type FilterCategory } from "../components/NumberFilter";
 import { getNumbersInGroup } from "../components/GroupExclude";
 import GroupCountSelector, {
-  getDefaultGroupCounts,
+  getDefaultGroupCountRanges,
   getDefaultGroupEnabled,
-  getDefaultGroupAtMost,
-  sumGroupCounts,
-  type GroupCounts,
+  normalizeGroupCountRanges,
+  sumGroupMins,
+  type GroupCountRanges,
   type GroupEnabled,
-  type GroupAtMost,
 } from "../components/GroupCountSelector";
 import { LottoPagePart1 } from "./LottoPagePart1";
 import { LottoPageMainContent } from "./LottoPageMainContent";
@@ -748,33 +747,34 @@ function drawLottoNumbers(
   return result.sort((a, b) => a - b);
 }
 
+function countInGroup(nums: number[], groupKey: number): number {
+  const groupNums = getNumbersInGroup(groupKey);
+  return nums.filter((n) => groupNums.includes(n)).length;
+}
+
+/** 그룹별 n ≤ 개수 ≤ m 범위를 만족하도록 추출 */
 function drawByGroupCounts(
-  groupCounts: GroupCounts,
+  groupCountRanges: GroupCountRanges,
   groupEnabled: GroupEnabled,
-  groupAtMost: GroupAtMost,
   mustInclude: number[],
   mustExclude: number[],
   extraExclude: number[] = []
 ): number[] {
   const excludeSet = new Set([...mustExclude, ...extraExclude]);
-  // 꼭 넣을 번호·조건 결과로 채움 (그룹 모드에서)
   const result = [...mustInclude];
   const resultSet = new Set(result);
 
-  // 1) 먼저 채울 그룹: 필요한 개수만큼 뽑기 (이미 result에 든 해당 그룹 번호는 제외하고 조건 검사)
+  // 1) 최소 개수(min) 충족
   for (const key of GROUP_KEYS) {
-    if (!groupEnabled[key] || (groupAtMost[key] ?? false)) continue;
-    const need = groupCounts[key] ?? 0;
-    if (need === 0) continue;
+    if (!groupEnabled[key]) continue;
+    const { min, max } = groupCountRanges[key] ?? { min: 0, max: 0 };
+    const already = countInGroup(result, key);
+    if (already > max) return []; // 꼭넣기로 max 초과 → 호출측 재시도
+    const toPick = Math.max(0, min - already);
+    if (toPick === 0) continue;
 
-    const groupNums = getNumbersInGroup(key);
-    const alreadyInResult = result.filter((n) => groupNums.includes(n));
-    if (alreadyInResult.length > need) continue; // 초과 채웠으면 해당 그룹은 스킵
-    const toPick = need - alreadyInResult.length;
-    if (toPick <= 0) continue;
-
-    const pool = groupNums.filter((n) => !excludeSet.has(n) && !resultSet.has(n));
-    if (pool.length < toPick) continue;
+    const pool = getNumbersInGroup(key).filter((n) => !excludeSet.has(n) && !resultSet.has(n));
+    if (pool.length < toPick) return [];
 
     for (let i = 0; i < toPick && pool.length > 0; i++) {
       const idx = Math.floor(Math.random() * pool.length);
@@ -785,38 +785,24 @@ function drawByGroupCounts(
     }
   }
 
+  // 2) 나머지 채우기 (각 그룹이 max를 넘지 않도록)
   const needFill = PICK_COUNT - result.length;
   if (needFill > 0) {
-    const excludeFromFill = new Set<number>();
+    const counts: Record<number, number> = { 9: 0, 18: 0, 27: 0, 36: 0, 45: 0 };
     for (const key of GROUP_KEYS) {
-      if (groupEnabled[key] && !(groupAtMost[key] ?? false)) {
-        for (const n of getNumbersInGroup(key)) excludeFromFill.add(n);
-      }
+      if (groupEnabled[key]) counts[key] = countInGroup(result, key);
     }
+
     let fillPool = Array.from({ length: MAX - MIN + 1 }, (_, i) => i + MIN).filter(
-      (n) =>
-        !excludeSet.has(n) &&
-        !resultSet.has(n) &&
-        !excludeFromFill.has(n)
+      (n) => !excludeSet.has(n) && !resultSet.has(n)
     );
-    // 뽑을 때 이미 result에 든 나머지 그룹 개수 반영 (꼭 넣을 번호·제외 그룹에서 계산)
-    const countByAtMostGroup: Record<number, number> = { 9: 0, 18: 0, 27: 0, 36: 0, 45: 0 };
-    for (const key of GROUP_KEYS) {
-      if (groupEnabled[key] && (groupAtMost[key] ?? false)) {
-        countByAtMostGroup[key] = result.filter((n) => getNumbersInGroup(key).includes(n)).length;
-      }
-    }
+
     for (let i = 0; i < needFill && fillPool.length > 0; i++) {
-      // 나머지 채울 때 넘치는 그룹 번호와 겹치는 놈부터 제거
       const validPool = fillPool.filter((n) => {
         for (const key of GROUP_KEYS) {
-          if (
-            groupEnabled[key] &&
-            (groupAtMost[key] ?? false) &&
-            getNumbersInGroup(key).includes(n)
-          ) {
-            if ((countByAtMostGroup[key] ?? 0) >= (groupCounts[key] ?? 0)) return false;
-          }
+          if (!groupEnabled[key]) continue;
+          const { max } = groupCountRanges[key] ?? { min: 0, max: 0 };
+          if (getNumbersInGroup(key).includes(n) && (counts[key] ?? 0) >= max) return false;
         }
         return true;
       });
@@ -827,15 +813,23 @@ function drawByGroupCounts(
       result.push(num);
       resultSet.add(num);
       for (const key of GROUP_KEYS) {
-        if (groupEnabled[key] && (groupAtMost[key] ?? false) && getNumbersInGroup(key).includes(num)) {
-          countByAtMostGroup[key] = (countByAtMostGroup[key] ?? 0) + 1;
-          if (countByAtMostGroup[key] >= (groupCounts[key] ?? 0)) {
+        if (groupEnabled[key] && getNumbersInGroup(key).includes(num)) {
+          counts[key] = (counts[key] ?? 0) + 1;
+          if (counts[key] >= (groupCountRanges[key]?.max ?? 0)) {
             fillPool = fillPool.filter((n) => !getNumbersInGroup(key).includes(n));
           }
           break;
         }
       }
     }
+  }
+
+  if (result.length !== PICK_COUNT) return [];
+  for (const key of GROUP_KEYS) {
+    if (!groupEnabled[key]) continue;
+    const { min, max } = groupCountRanges[key] ?? { min: 0, max: 0 };
+    const c = countInGroup(result, key);
+    if (c < min || c > max) return [];
   }
 
   return result.sort((a, b) => a - b);
@@ -849,9 +843,8 @@ export function LottoPageBody() {
     getInitialFilterStates
   );
   const [currentCategory, setCurrentCategory] = useState<FilterCategory>("include");
-  const [groupCounts, setGroupCounts] = useState<GroupCounts>(getDefaultGroupCounts);
+  const [groupCountRanges, setGroupCountRanges] = useState<GroupCountRanges>(getDefaultGroupCountRanges);
   const [groupEnabled, setGroupEnabled] = useState<GroupEnabled>(getDefaultGroupEnabled);
-  const [groupAtMost, setGroupAtMost] = useState<GroupAtMost>(getDefaultGroupAtMost);
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedMessage, setSeedMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [activeTab, setActiveTab] = useState<"number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound">("number");
@@ -1116,12 +1109,7 @@ export function LottoPageBody() {
         }
         const numKeys = [9, 18, 27, 36, 45];
         if (s.groupCounts && typeof s.groupCounts === "object") {
-          const next: GroupCounts = { ...getDefaultGroupCounts() };
-          for (const key of numKeys) {
-            const v = s.groupCounts[key] ?? s.groupCounts[String(key)];
-            if (typeof v === "number" && v >= 0) next[key] = Math.min(3, v);
-          }
-          setGroupCounts(next);
+          setGroupCountRanges(normalizeGroupCountRanges(s.groupCounts, s.groupAtMost));
         }
         if (s.groupEnabled && typeof s.groupEnabled === "object") {
           const next: GroupEnabled = { ...getDefaultGroupEnabled() };
@@ -1130,14 +1118,6 @@ export function LottoPageBody() {
             if (typeof v === "boolean") next[key] = v;
           }
           setGroupEnabled(next);
-        }
-        if (s.groupAtMost && typeof s.groupAtMost === "object") {
-          const next: GroupAtMost = { ...getDefaultGroupAtMost() };
-          for (const key of numKeys) {
-            const v = s.groupAtMost[key] ?? s.groupAtMost[String(key)];
-            if (typeof v === "boolean") next[key] = v;
-          }
-          setGroupAtMost(next);
         }
         const ps = s.patternSettings;
         if (ps && typeof ps === "object") {
@@ -1224,72 +1204,53 @@ export function LottoPageBody() {
     [mustExclude.length]
   );
 
-  const enabledSum = useMemo(
-    () => sumGroupCounts(groupCounts, groupEnabled),
-    [groupCounts, groupEnabled]
+  const minSum = useMemo(
+    () => sumGroupMins(groupCountRanges, groupEnabled),
+    [groupCountRanges, groupEnabled]
   );
-  const exactSum = useMemo(
-    () =>
-      GROUP_KEYS.reduce(
-        (s, key) =>
-          s + (groupEnabled[key] && !(groupAtMost[key] ?? false) ? groupCounts[key] ?? 0 : 0),
-        0
-      ),
-    [groupCounts, groupEnabled, groupAtMost]
-  );
-  const hasExcludedGroups =
-    GROUP_KEYS.some(
-      (key) =>
-        groupEnabled[key] &&
-        (groupCounts[key] ?? 0) === 0 &&
-        !(groupAtMost[key] ?? false)
-    );
-  const useGroupCountMode = enabledSum > 0 || hasExcludedGroups;
+  const hasGroupConstraint = GROUP_KEYS.some((key) => {
+    if (!groupEnabled[key]) return false;
+    const { min, max } = groupCountRanges[key] ?? { min: 0, max: 3 };
+    return min > 0 || max < 3;
+  });
+  const useGroupCountMode = minSum > 0 || hasGroupConstraint;
 
   useEffect(() => {
-    if (exactSum <= PICK_COUNT) return;
+    if (minSum <= PICK_COUNT) return;
     setGroupEnabled((prev) => {
       const next = { ...prev };
       for (const key of [45, 36, 27, 18, 9] as const) {
-        if (next[key] && !(groupAtMost[key] ?? false)) {
-          next[key] = false;
-          const newExact = GROUP_KEYS.reduce(
-            (s, k) =>
-              s + (next[k] && !(groupAtMost[k] ?? false) ? groupCounts[k] ?? 0 : 0),
-            0
-          );
-          if (newExact <= PICK_COUNT) return next;
-        }
+        if (!next[key]) continue;
+        next[key] = false;
+        if (sumGroupMins(groupCountRanges, next) <= PICK_COUNT) return next;
       }
       return next;
     });
-  }, [exactSum, groupCounts, groupAtMost]);
+  }, [minSum, groupCountRanges]);
 
   const canDrawByGroupCounts = useMemo(() => {
     if (!useGroupCountMode) return false;
-    let totalFromGroups = 0;
-    let excludeFromFillCount = 0;
+    if (minSum > PICK_COUNT) return false;
+    let maxSum = 0;
     for (const key of GROUP_KEYS) {
       if (!groupEnabled[key]) continue;
-      const need = groupCounts[key] ?? 0;
-      const atMost = groupAtMost[key] ?? false;
-      if (need === 0 && !atMost) {
-        excludeFromFillCount += getNumbersInGroup(key).length;
-        continue;
-      }
-      if (atMost) continue; // 나머지 그룹은 뽑을 개수에서만 사용
+      const { min, max } = groupCountRanges[key] ?? { min: 0, max: 0 };
       const groupNums = getNumbersInGroup(key);
       const available = groupNums.filter((n) => !mustExclude.includes(n)).length;
-      if (available < need) return false;
+      if (available < min) return false;
       const mustInGroup = mustInclude.filter((n) => groupNums.includes(n)).length;
-      if (mustInGroup > need) return false;
-      totalFromGroups += need;
+      if (mustInGroup > max) return false;
+      maxSum += Math.min(max, available);
     }
-    const needFill = PICK_COUNT - totalFromGroups;
-    if (needFill <= 0) return true;
-    const fillPoolSize = 45 - mustExclude.length - totalFromGroups - excludeFromFillCount;
-    return fillPoolSize >= needFill;
-  }, [useGroupCountMode, groupCounts, groupEnabled, groupAtMost, mustInclude, mustExclude]);
+    // 비활성 그룹에서도 채울 수 있음
+    const inactivePool = GROUP_KEYS.reduce((s, key) => {
+      if (groupEnabled[key]) return s;
+      return s + getNumbersInGroup(key).filter((n) => !mustExclude.includes(n)).length;
+    }, 0);
+    const totalCapacity = maxSum + inactivePool;
+    if (totalCapacity < PICK_COUNT) return false;
+    return true;
+  }, [useGroupCountMode, minSum, groupCountRanges, groupEnabled, mustInclude, mustExclude]);
 
   const canDrawFree = useMemo(() => {
     if (mustInclude.length > PICK_COUNT) return false;
@@ -1324,16 +1285,24 @@ export function LottoPageBody() {
     [currentCategory]
   );
 
-  const handleGroupCountChange = useCallback((groupKey: number, value: number) => {
-    setGroupCounts((prev) => ({ ...prev, [groupKey]: value }));
+  const handleGroupCountMinChange = useCallback((groupKey: number, value: number) => {
+    setGroupCountRanges((prev) => {
+      const cur = prev[groupKey] ?? { min: 0, max: 0 };
+      const min = Math.max(0, Math.min(cur.max, value));
+      return { ...prev, [groupKey]: { min, max: cur.max } };
+    });
+  }, []);
+
+  const handleGroupCountMaxChange = useCallback((groupKey: number, value: number) => {
+    setGroupCountRanges((prev) => {
+      const cur = prev[groupKey] ?? { min: 0, max: 0 };
+      const max = Math.min(3, Math.max(cur.min, value));
+      return { ...prev, [groupKey]: { min: cur.min, max } };
+    });
   }, []);
 
   const handleToggleGroupEnabled = useCallback((groupKey: number) => {
     setGroupEnabled((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
-  }, []);
-
-  const handleSetGroupAtMost = useCallback((groupKey: number, atMost: boolean) => {
-    setGroupAtMost((prev) => ({ ...prev, [groupKey]: atMost }));
   }, []);
 
   const handleSeedLotto = useCallback(async () => {
@@ -1382,7 +1351,7 @@ export function LottoPageBody() {
         let result: number[] = [];
         for (let retry = 0; retry < maxRetry * maxSetRetry; retry++) {
           result = useGroupCountMode
-            ? drawByGroupCounts(groupCounts, groupEnabled, groupAtMost, mustInclude, mustExclude, prevRoundExclude)
+            ? drawByGroupCounts(groupCountRanges, groupEnabled, mustInclude, mustExclude, prevRoundExclude)
             : drawLottoNumbers(mustInclude, mustExclude, atLeastOne, prevRoundExclude);
           if (result.length !== PICK_COUNT) continue;
           if (!meetsPatternConstraints(result, sumMin, sumMax, maxConsecutivePairs, allowedGroup9_45, allowedOddEven)) continue;
@@ -1401,9 +1370,9 @@ export function LottoPageBody() {
         body: JSON.stringify({
           gameCount,
           filterStates,
-          groupCounts,
+          groupCounts: groupCountRanges,
           groupEnabled,
-          groupAtMost,
+          groupAtMost: {},
           patternSettings: {
             sumMin,
             sumMax,
@@ -1419,9 +1388,8 @@ export function LottoPageBody() {
     canDraw,
     gameCount,
     useGroupCountMode,
-    groupCounts,
+    groupCountRanges,
     groupEnabled,
-    groupAtMost,
     mustInclude,
     mustExclude,
     atLeastOne,
@@ -1438,14 +1406,14 @@ export function LottoPageBody() {
 
   const scope = {
     games, setGames, gameCount, setGameCount, isDrawing, filterStates, currentCategory,
-    groupCounts, groupEnabled, groupAtMost, seedLoading, seedMessage, activeTab, setActiveTab: (tab: typeof activeTab) => {
+    groupCountRanges, groupEnabled, seedLoading, seedMessage, activeTab, setActiveTab: (tab: typeof activeTab) => {
       setActiveTab(tab);
       if (tab === "prevRound" || tab === "repeatAppear" || tab === "sum" || tab === "oddEven") loadAllRounds();
     }, sumMin, sumMax,
     maxConsecutivePairs, selectedGroup9_45Keys, toggleGroup9_45Key, runAnalysis, savedRounds, savedRoundsLoading, allRounds, allRoundsLoading, mainTab, setMainTab, analysis, analysisLoading,
     saveDrawnLoading, saveDrawnMessage, fetchDbScreenData, handleDraw, canDraw, nextRound: resolvedNextRound,
     savedDrawnList, setSavedDrawnList, loadSavedDrawn,
-    handleCategoryChange, handleNumberClick, handleGroupCountChange, handleToggleGroupEnabled, handleSetGroupAtMost,
+    handleCategoryChange, handleNumberClick, handleGroupCountMinChange, handleGroupCountMaxChange, handleToggleGroupEnabled,
     TABS, mustInclude, mustExclude, atLeastOne, useGroupCountMode, poolSize,
     setSaveDrawnMessage, setSaveDrawnLoading, setSavedRounds, setAnalysis, setAnalysisLoading, setSeedMessage, setSeedLoading,
     setSumMin, setSumMax, setMaxConsecutivePairs,
