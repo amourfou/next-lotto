@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { LotteryData, analyzePositionFrequency, analyzeDigitSum, analyzeDuplicatePatterns, analyzeDuplicatePositionPatterns, analyzeDuplicateFrequency, analyzePreviousRoundComparison, analyzePositionTransition, analyzeFirstDigitComparison } from '../lib/dataParser';
-import { Sparkles, RefreshCw, Dice6, TrendingUp, TrendingDown, Save, Trash2, History, X } from 'lucide-react';
+import { Sparkles, RefreshCw, Dice6, TrendingUp, TrendingDown, Save, Trash2, History, X, ChevronDown } from 'lucide-react';
 import InfoTooltip from './InfoTooltip';
 
 interface PredictionGeneratorProps {
@@ -21,6 +21,11 @@ export interface PredictionOptions {
   limitToStdDev?: boolean;
   /** 최근 회차 합계 추이를 목표 합계에 반영 */
   useRecentTrend?: boolean;
+  /**
+   * true면 배치 패턴의 O 쌍 외에 X 자리끼리 또 다른 중복이 생길 수 있음.
+   * false(기본)면 패턴 정의대로 O 숫자만 2회, 나머지 자리는 모두 서로 다른 숫자.
+   */
+  allowMultipleDuplicateDigits?: boolean;
 }
 
 function getFixedDigit(fixed: (number | null)[] | undefined, pos: number): number | null {
@@ -33,6 +38,65 @@ function getFixedDigit(fixed: (number | null)[] | undefined, pos: number): numbe
 
 function hasFixedDigits(fixed?: (number | null)[]): boolean {
   return (fixed ?? []).some((d) => d !== null && d !== undefined && d >= 0 && d <= 9);
+}
+
+export interface PositionDigitStat {
+  digit: number;
+  percentage: number; // 해당 자리 출현 확률 (%)
+  absence: number; // 연속 미출현 회차
+}
+
+/**
+ * 각 자리(0~5)별 숫자(0~9)의 출현 확률·연속 미출현 횟수.
+ * 미출현: 최근 회차부터 역순으로, 해당 자리에 해당 숫자가 나올 때까지의 회차 수.
+ */
+function computePositionDigitStats(lotteryData: LotteryData[]): PositionDigitStat[][] {
+  const empty: PositionDigitStat[][] = Array.from({ length: 6 }, () =>
+    Array.from({ length: 10 }, (_, digit) => ({ digit, percentage: 0, absence: 0 }))
+  );
+  if (lotteryData.length === 0) return empty;
+
+  const total = lotteryData.length;
+  const sortedNewestFirst = [...lotteryData].sort((a, b) => b.order - a.order);
+  const posFreq = analyzePositionFrequency(lotteryData);
+
+  return Array.from({ length: 6 }, (_, pos) =>
+    Array.from({ length: 10 }, (_, digit) => {
+      let absence = 0;
+      for (const data of sortedNewestFirst) {
+        if (data.numbers[pos] === digit) break;
+        absence++;
+      }
+      const count = posFreq[pos]?.digitFrequency[digit] ?? 0;
+      const percentage = total > 0 ? (count / total) * 100 : 0;
+      return { digit, percentage, absence };
+    })
+  );
+}
+
+/** 자리별 숫자 옵션 한 행 (숫자 · 출현% · 미출현) — 세로 열 정렬용 */
+function PositionDigitStatRow({
+  digitLabel,
+  percentageLabel,
+  absenceLabel,
+  muted,
+}: {
+  digitLabel: string;
+  percentageLabel: string;
+  absenceLabel: string;
+  muted?: boolean;
+}) {
+  return (
+    <span
+      className={`grid w-full grid-cols-[1.5rem_3.75rem_3rem] items-center gap-x-1.5 font-mono text-[10px] tabular-nums leading-none sm:text-[11px] ${
+        muted ? 'text-gray-400' : 'text-gray-700'
+      }`}
+    >
+      <span className="text-center font-semibold">{digitLabel}</span>
+      <span className="text-right">{percentageLabel}</span>
+      <span className={`text-right ${muted ? '' : 'text-amber-700'}`}>{absenceLabel}</span>
+    </span>
+  );
 }
 
 function applyFixedDigits(digits: number[], fixed?: (number | null)[]): number[] {
@@ -207,6 +271,8 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
     // 패턴에 따라 숫자 배치
     generatedDigits = Array(6).fill(-1);
     const patternChars = selectedPattern.split('');
+    // false(기본): O 쌍만 중복 허용, X 자리는 서로·O와 모두 다른 숫자
+    const allowMultiDup = options?.allowMultipleDuplicateDigits === true;
     
     // 패턴의 O 위치에 중복 숫자 배치
     const oPositions: number[] = [];
@@ -216,6 +282,9 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
         generatedDigits[index] = duplicateDigit;
       }
     });
+
+    // 이미 사용된 숫자 (O 숫자 + 확정된 X 숫자). 다중 중복 비허용 시 X끼리 재사용 금지
+    const usedDigitsForPattern = new Set<number>([duplicateDigit]);
     
     // X 위치에 각 자리별 빈도와 전이 패턴을 고려한 숫자 배치
     for (let pos = 0; pos < 6; pos++) {
@@ -230,31 +299,52 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
           ? transitionData.transitionProbabilities[prevDigit] || {}
           : {};
         
-        // 중복 숫자 제외하고 가중치 계산
+        // O 숫자는 항상 제외. 다중 중복 비허용 시 이미 쓴 숫자도 제외
         for (let digit = 0; digit <= 9; digit++) {
-          if (digit !== duplicateDigit) {
-            const freq = posData.digitFrequency[digit] || 0;
-            // 전이 패턴 확률 (0~1 범위, 없으면 0.1 기본값)
-            const transitionWeight = transitionProb[digit] || 0.1;
-            // 빈도와 전이 패턴을 조합한 가중치 (전이 패턴을 더 중요하게 반영)
-            const combinedWeight = (freq + 1) * (1 + transitionWeight * 5); // 전이 패턴에 5배 가중치
-            weights.push({
-              digit,
-              weight: combinedWeight
-            });
-          }
+          if (digit === duplicateDigit) continue;
+          if (!allowMultiDup && usedDigitsForPattern.has(digit)) continue;
+          const freq = posData.digitFrequency[digit] || 0;
+          // 전이 패턴 확률 (0~1 범위, 없으면 0.1 기본값)
+          const transitionWeight = transitionProb[digit] || 0.1;
+          // 빈도와 전이 패턴을 조합한 가중치 (전이 패턴을 더 중요하게 반영)
+          const combinedWeight = (freq + 1) * (1 + transitionWeight * 5); // 전이 패턴에 5배 가중치
+          weights.push({
+            digit,
+            weight: combinedWeight
+          });
         }
         
         // 가중치에 따라 숫자 선택
-        const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0);
-        let random = Math.random() * totalWeight;
-        
-        for (const { digit, weight } of weights) {
-          random -= weight;
-          if (random <= 0) {
-            generatedDigits[pos] = digit;
-            break;
+        if (weights.length > 0) {
+          const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0);
+          let random = Math.random() * totalWeight;
+          
+          for (const { digit, weight } of weights) {
+            random -= weight;
+            if (random <= 0) {
+              generatedDigits[pos] = digit;
+              break;
+            }
           }
+          // 부동소수 잔여로 못 고른 경우 마지막 후보
+          if (generatedDigits[pos] === -1) {
+            generatedDigits[pos] = weights[weights.length - 1].digit;
+          }
+        } else {
+          // 후보가 없으면 사용 가능한 숫자 중 랜덤 (O 제외, 다중 비허용 시 used 제외)
+          const available = Array.from({ length: 10 }, (_, i) => i).filter((d) => {
+            if (d === duplicateDigit) return false;
+            if (!allowMultiDup && usedDigitsForPattern.has(d)) return false;
+            return true;
+          });
+          generatedDigits[pos] =
+            available.length > 0
+              ? available[Math.floor(Math.random() * available.length)]
+              : Math.floor(Math.random() * 10);
+        }
+
+        if (!allowMultiDup && generatedDigits[pos] !== -1) {
+          usedDigitsForPattern.add(generatedDigits[pos]);
         }
       }
     }
@@ -524,8 +614,12 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
   const [selectedPatternOptions, setSelectedPatternOptions] = useState<string[]>([]);
   const [selectedDuplicateDigitOptions, setSelectedDuplicateDigitOptions] = useState<number[]>([]);
   const [fixedDigitByPosition, setFixedDigitByPosition] = useState<(number | null)[]>(() => Array(6).fill(null));
+  const [openFixedDigitPos, setOpenFixedDigitPos] = useState<number | null>(null);
+  const fixedDigitPickerRef = useRef<HTMLDivElement>(null);
   const [limitToStdDevOption, setLimitToStdDevOption] = useState(false);
   const [useRecentTrendOption, setUseRecentTrendOption] = useState(false);
+  /** 체크 시에만 배치 패턴 외 추가 중복 숫자(2종 이상) 허용. 기본 false = 패턴 엄수 */
+  const [allowMultipleDuplicateDigitsOption, setAllowMultipleDuplicateDigitsOption] = useState(false);
   const [gameRecommendations, setGameRecommendations] = useState<{ digit: { key: number; label: string; signalScore: number; overdueRatio: number; frequency: number; absenceCount: number; avgInterval: number; count: number }; pattern: string | null }[]>([]);
 
   // ── 저장 관련 state ──────────────────────────────────────────────────────
@@ -657,6 +751,7 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
         fixedDigits: fixedDigitByPosition,
         limitToStdDev: limitToStdDevOption,
         useRecentTrend: useRecentTrendOption,
+        allowMultipleDuplicateDigits: allowMultipleDuplicateDigitsOption,
       };
 
       const savedKeys = new Set(savedPredictions.map(d => d.join(',')));
@@ -873,6 +968,28 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
       setIsGenerating(false);
     }, 300); // 애니메이션 효과를 위한 딜레이
   };
+
+  const positionDigitStats = useMemo(
+    () => computePositionDigitStats(lotteryData),
+    [lotteryData]
+  );
+
+  // 자리별 숫자 지정 드롭다운 바깥 클릭 시 닫기
+  useEffect(() => {
+    if (openFixedDigitPos === null) return;
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      const root = fixedDigitPickerRef.current;
+      if (root && !root.contains(e.target as Node)) {
+        setOpenFixedDigitPos(null);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+    };
+  }, [openFixedDigitPos]);
 
   if (lotteryData.length === 0) {
     return null;
@@ -1239,47 +1356,150 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
         </div>
 
         {/* 자리별 숫자 지정 */}
-        <div className="bg-white rounded-lg border border-purple-100 p-2 mb-3">
+        <div className="bg-white rounded-lg border border-purple-100 p-2 mb-3" ref={fixedDigitPickerRef}>
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-gray-600">자리별 숫자 지정</span>
             {fixedDigitByPosition.some((d) => d !== null) && (
               <button
                 type="button"
-                onClick={() => setFixedDigitByPosition(Array(6).fill(null))}
+                onClick={() => {
+                  setFixedDigitByPosition(Array(6).fill(null));
+                  setOpenFixedDigitPos(null);
+                }}
                 className="text-[10px] text-purple-400 hover:text-purple-600"
               >
                 해제
               </button>
             )}
           </div>
-          <div className="grid grid-cols-6 gap-1.5">
-            {fixedDigitByPosition.map((digit, index) => (
-              <div key={index} className="flex flex-col items-center gap-1">
-                <span className="text-[10px] text-gray-500">{index + 1}번째</span>
-                <select
-                  value={digit === null ? '' : String(digit)}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setFixedDigitByPosition((prev) => {
-                      const next = [...prev];
-                      next[index] = v === '' ? null : parseInt(v, 10);
-                      return next;
-                    });
-                  }}
-                  className="w-full rounded-md border border-gray-200 bg-white px-1 py-1.5 text-center text-xs text-gray-700 focus:border-purple-400 focus:outline-none"
-                >
-                  <option value="">자동</option>
-                  {Array.from({ length: 10 }, (_, d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+            {fixedDigitByPosition.map((digit, index) => {
+              const stats = positionDigitStats[index] ?? [];
+              const selectedStat = digit !== null ? stats[digit] : null;
+              const isOpen = openFixedDigitPos === index;
+              return (
+                <div key={index} className="relative flex flex-col items-stretch gap-1">
+                  <span className="text-[10px] text-gray-500 text-center">{index + 1}번째</span>
+                  <button
+                    type="button"
+                    onClick={() => setOpenFixedDigitPos(isOpen ? null : index)}
+                    className={`flex w-full min-h-[2.75rem] flex-col items-center justify-center gap-0.5 rounded-md border px-1 py-1 transition-colors ${
+                      isOpen
+                        ? 'border-purple-400 bg-purple-50 ring-1 ring-purple-200'
+                        : digit !== null
+                          ? 'border-purple-300 bg-purple-50/60'
+                          : 'border-gray-200 bg-white hover:border-purple-300'
+                    }`}
+                    title={
+                      selectedStat
+                        ? `${selectedStat.digit} · ${selectedStat.percentage.toFixed(1)}% · 미${selectedStat.absence}`
+                        : '자동 생성'
+                    }
+                    aria-expanded={isOpen}
+                    aria-haspopup="listbox"
+                  >
+                    {selectedStat ? (
+                      <>
+                        <span className="flex items-center gap-0.5 text-sm font-bold text-purple-700">
+                          {selectedStat.digit}
+                          <ChevronDown
+                            size={11}
+                            className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                          />
+                        </span>
+                        <span className="font-mono text-[9px] tabular-nums leading-none text-gray-500">
+                          {selectedStat.percentage.toFixed(1)}%
+                          <span className="mx-0.5 text-gray-300">·</span>
+                          <span className="text-amber-700">미{selectedStat.absence}</span>
+                        </span>
+                      </>
+                    ) : (
+                      <span className="flex items-center gap-0.5 text-[10px] text-gray-400 sm:text-[11px]">
+                        자동
+                        <ChevronDown
+                          size={11}
+                          className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                        />
+                      </span>
+                    )}
+                  </button>
+                  {isOpen && (
+                    <div
+                      className={`absolute top-full z-30 mt-1 w-[11rem] overflow-hidden rounded-md border border-purple-200 bg-white shadow-lg ${
+                        index % 3 === 0
+                          ? 'left-0'
+                          : index % 3 === 2
+                            ? 'right-0'
+                            : 'left-1/2 -translate-x-1/2'
+                      }`}
+                      role="listbox"
+                    >
+                      <div className="border-b border-gray-100 bg-gray-50 px-2 py-1">
+                        <PositionDigitStatRow
+                          digitLabel="#"
+                          percentageLabel="출현"
+                          absenceLabel="미출"
+                          muted
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={digit === null}
+                        onClick={() => {
+                          setFixedDigitByPosition((prev) => {
+                            const next = [...prev];
+                            next[index] = null;
+                            return next;
+                          });
+                          setOpenFixedDigitPos(null);
+                        }}
+                        className={`flex w-full items-center px-2 py-1.5 text-left hover:bg-purple-50 ${
+                          digit === null ? 'bg-purple-50' : ''
+                        }`}
+                      >
+                        <span className="w-full text-center text-[10px] text-gray-500 sm:text-[11px]">자동</span>
+                      </button>
+                      <ul className="max-h-56 overflow-y-auto py-0.5">
+                        {stats.map((stat) => {
+                          const selected = digit === stat.digit;
+                          return (
+                            <li key={stat.digit}>
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={selected}
+                                onClick={() => {
+                                  setFixedDigitByPosition((prev) => {
+                                    const next = [...prev];
+                                    next[index] = stat.digit;
+                                    return next;
+                                  });
+                                  setOpenFixedDigitPos(null);
+                                }}
+                                className={`flex w-full items-center px-2 py-1.5 text-left hover:bg-purple-50 ${
+                                  selected ? 'bg-purple-50 font-medium' : ''
+                                }`}
+                              >
+                                <PositionDigitStatRow
+                                  digitLabel={String(stat.digit)}
+                                  percentageLabel={`${stat.percentage.toFixed(1)}%`}
+                                  absenceLabel={String(stat.absence)}
+                                />
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <p className="text-[10px] text-gray-500 mt-2">
-            지정한 자리는 고정되고, 나머지 자리는 분석 기반으로 생성됩니다.
+            지정한 자리는 고정되고, 나머지 자리는 분석 기반으로 생성됩니다. 목록은{' '}
+            <span className="font-mono text-gray-600">숫자 · 출현확률% · 미출현횟수</span> 순이며 열이 맞춰져 있습니다.
           </p>
         </div>
 
@@ -1302,6 +1522,18 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
               className="w-3.5 h-3.5 accent-purple-600"
             />
             <span className="text-[11px] sm:text-xs text-gray-700">최근 합계 추이 반영</span>
+          </label>
+          <label
+            className="flex items-center gap-1.5 cursor-pointer select-none"
+            title="체크 시에만 배치 패턴의 O 쌍 외에 다른 숫자도 중복될 수 있습니다. 미체크 시 XXXXOO → 123455처럼 O만 한 쌍입니다."
+          >
+            <input
+              type="checkbox"
+              checked={allowMultipleDuplicateDigitsOption}
+              onChange={(e) => setAllowMultipleDuplicateDigitsOption(e.target.checked)}
+              className="w-3.5 h-3.5 accent-purple-600"
+            />
+            <span className="text-[11px] sm:text-xs text-gray-700">중복 숫자 2종 이상 허용</span>
           </label>
         </div>
       </div>
