@@ -26,6 +26,11 @@ export interface PredictionOptions {
    * false(기본)면 패턴 정의대로 O 숫자만 2회, 나머지 자리는 모두 서로 다른 숫자.
    */
   allowMultipleDuplicateDigits?: boolean;
+  /**
+   * true면 6자리 모두 서로 다른 숫자만 허용 (중복 숫자 0개).
+   * allowMultipleDuplicateDigits와 상호 배타.
+   */
+  disallowDuplicateDigits?: boolean;
 }
 
 function getFixedDigit(fixed: (number | null)[] | undefined, pos: number): number | null {
@@ -126,15 +131,38 @@ function digitColor(n: number): string {
   return DIGIT_COLORS[n] ?? 'from-gray-400 to-gray-600';
 }
 
+/** 6자리 번호에 같은 숫자가 2번 이상 있는지 */
+function hasAnyDuplicateDigits(digits: number[]): boolean {
+  const seen = new Set<number>();
+  for (const d of digits) {
+    if (seen.has(d)) return true;
+    seen.add(d);
+  }
+  return false;
+}
+
+/** 데이터 없을 때 6자리 서로 다른 숫자 랜덤 생성 */
+function randomUniqueDigits(): number[] {
+  const pool = Array.from({ length: 10 }, (_, i) => i);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, 6);
+}
+
 /**
  * 분석 결과를 기반으로 랜덤 숫자 생성
- * @param options.selectedPattern - 지정 시 2개 중복 + 해당 배치 패턴으로 생성
- * @param options.selectedDuplicateDigit - 지정 시 중복될 숫자로 사용
+ * @param options.selectedPatterns - 지정 시 2개 중복 + 해당 배치 패턴으로 생성
+ * @param options.selectedDuplicateDigits - 지정 시 중복될 숫자로 사용
+ * @param options.disallowDuplicateDigits - true면 6자리 모두 서로 다른 숫자만 생성
  */
 function generatePrediction(lotteryData: LotteryData[], options?: PredictionOptions): number[] {
+  const disallowDup = options?.disallowDuplicateDigits === true;
+
   if (lotteryData.length === 0) {
-    // 데이터가 없으면 완전 랜덤
-    return Array.from({ length: 6 }, () => Math.floor(Math.random() * 10));
+    // 데이터가 없으면 완전 랜덤 (중복 금지 옵션 시 서로 다른 숫자)
+    return disallowDup ? randomUniqueDigits() : Array.from({ length: 6 }, () => Math.floor(Math.random() * 10));
   }
 
   const positionFreq = analyzePositionFrequency(lotteryData);
@@ -174,35 +202,39 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
   const maxChange = previousComparison.changeStatistics.maxChange;
   
   // 중복 빈도 패턴 선택 (0개, 2개, 3개, 4개, 5개, 6개 중복)
-  const frequencyWeights = [
-    { frequency: 0, weight: duplicateFrequencyAnalysis.frequencyDistribution[0] || 0 },
-    { frequency: 2, weight: duplicateFrequencyAnalysis.frequencyDistribution[2] || 0 },
-    { frequency: 3, weight: duplicateFrequencyAnalysis.frequencyDistribution[3] || 0 },
-    { frequency: 4, weight: duplicateFrequencyAnalysis.frequencyDistribution[4] || 0 },
-    { frequency: 5, weight: duplicateFrequencyAnalysis.frequencyDistribution[5] || 0 },
-    { frequency: 6, weight: duplicateFrequencyAnalysis.frequencyDistribution[6] || 0 }
-  ];
-  
-  const totalFrequencyWeight = frequencyWeights.reduce((sum, f) => sum + f.weight, 0);
-  let frequencyRandom = totalFrequencyWeight > 0 ? Math.random() * totalFrequencyWeight : Math.random() * 6;
+  // 중복 허용 안 함이면 무조건 0 (모든 자리 서로 다른 숫자)
   let selectedFrequency = 0;
-  
-  if (totalFrequencyWeight > 0) {
-    for (const { frequency, weight } of frequencyWeights) {
-      frequencyRandom -= weight;
-      if (frequencyRandom <= 0) {
-        selectedFrequency = frequency;
-        break;
+  if (!disallowDup) {
+    const frequencyWeights = [
+      { frequency: 0, weight: duplicateFrequencyAnalysis.frequencyDistribution[0] || 0 },
+      { frequency: 2, weight: duplicateFrequencyAnalysis.frequencyDistribution[2] || 0 },
+      { frequency: 3, weight: duplicateFrequencyAnalysis.frequencyDistribution[3] || 0 },
+      { frequency: 4, weight: duplicateFrequencyAnalysis.frequencyDistribution[4] || 0 },
+      { frequency: 5, weight: duplicateFrequencyAnalysis.frequencyDistribution[5] || 0 },
+      { frequency: 6, weight: duplicateFrequencyAnalysis.frequencyDistribution[6] || 0 }
+    ];
+    
+    const totalFrequencyWeight = frequencyWeights.reduce((sum, f) => sum + f.weight, 0);
+    let frequencyRandom = totalFrequencyWeight > 0 ? Math.random() * totalFrequencyWeight : Math.random() * 6;
+    
+    if (totalFrequencyWeight > 0) {
+      for (const { frequency, weight } of frequencyWeights) {
+        frequencyRandom -= weight;
+        if (frequencyRandom <= 0) {
+          selectedFrequency = frequency;
+          break;
+        }
       }
+    } else {
+      // 가중치가 없으면 랜덤 선택
+      const frequencies = [0, 2, 3, 4, 5, 6];
+      selectedFrequency = frequencies[Math.floor(Math.random() * frequencies.length)];
     }
-  } else {
-    // 가중치가 없으면 랜덤 선택
-    const frequencies = [0, 2, 3, 4, 5, 6];
-    selectedFrequency = frequencies[Math.floor(Math.random() * frequencies.length)];
   }
   
   // 사용자가 배치 패턴을 지정했으면 2중복 + 배치 패턴 모드로 고정
-  const selectedPatternsList = options?.selectedPatterns ?? [];
+  // 단, 중복 허용 안 함이면 배치 패턴(O 쌍) 무시
+  const selectedPatternsList = disallowDup ? [] : (options?.selectedPatterns ?? []);
   const forcePattern = selectedPatternsList.length > 0;
   // 선택된 패턴 중 랜덤으로 하나 선택
   const chosenPattern = forcePattern
@@ -211,8 +243,9 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
   const validPattern = chosenPattern != null && positionPatternAnalysis.patternDetails.some(p => p.pattern === chosenPattern);
 
   // 배치 패턴을 고려한 숫자 생성 (1개 중복 패턴은 selectedFrequency가 2일 때만, 또는 사용자가 패턴 지정 시)
-  const usePositionPattern = (validPattern || (selectedFrequency === 2 && Math.random() < 0.5)) && positionPatternAnalysis.patternDetails.length > 0;
-  const effectiveFrequency = validPattern ? 2 : selectedFrequency;
+  // 중복 허용 안 함이면 배치 패턴 경로 사용 안 함
+  const usePositionPattern = !disallowDup && (validPattern || (selectedFrequency === 2 && Math.random() < 0.5)) && positionPatternAnalysis.patternDetails.length > 0;
+  const effectiveFrequency = disallowDup ? 0 : (validPattern ? 2 : selectedFrequency);
   
   let generatedDigits: number[];
   
@@ -502,10 +535,11 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
     }
   }
   
-  // 사용자가 배치 패턴·중복 숫자·자리 고정을 지정했으면, 이후 합계/직전회차 조정을 하지 않아 선택이 유지되도록 함
+  // 사용자가 배치 패턴·중복 숫자·자리 고정·중복 금지를 지정했으면, 이후 합계/직전회차 조정을 하지 않아 제약이 유지되도록 함
   const userSpecifiedOptions = selectedPatternsList.length > 0 ||
     (options?.selectedDuplicateDigits ?? []).length > 0 ||
-    hasFixedDigits(options?.fixedDigits);
+    hasFixedDigits(options?.fixedDigits) ||
+    disallowDup;
 
   if (!userSpecifiedOptions) {
     let currentSum = generatedDigits.reduce((sum, d) => sum + d, 0);
@@ -592,7 +626,56 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
     }
   }
 
-  return applyFixedDigits(generatedDigits, options?.fixedDigits);
+  let result = applyFixedDigits(generatedDigits, options?.fixedDigits);
+
+  // 중복 허용 안 함: 고정 자리 적용 후에도 중복이 있으면 고정 자리만 유지한 채 나머지를 재배치
+  if (disallowDup && hasAnyDuplicateDigits(result)) {
+    const fixed = options?.fixedDigits;
+    const used = new Set<number>();
+    const rebuilt = Array(6).fill(-1) as number[];
+    for (let i = 0; i < 6; i++) {
+      const v = getFixedDigit(fixed, i);
+      if (v !== null && !used.has(v)) {
+        rebuilt[i] = v;
+        used.add(v);
+      }
+    }
+    for (let pos = 0; pos < 6; pos++) {
+      if (rebuilt[pos] !== -1) continue;
+      const posData = positionFreq[pos];
+      const weights: { digit: number; weight: number }[] = [];
+      for (let digit = 0; digit <= 9; digit++) {
+        if (used.has(digit)) continue;
+        const freq = posData?.digitFrequency[digit] || 0;
+        weights.push({ digit, weight: freq + 1 });
+      }
+      if (weights.length > 0) {
+        const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0);
+        let random = Math.random() * totalWeight;
+        for (const { digit, weight } of weights) {
+          random -= weight;
+          if (random <= 0) {
+            rebuilt[pos] = digit;
+            used.add(digit);
+            break;
+          }
+        }
+        if (rebuilt[pos] === -1) {
+          rebuilt[pos] = weights[weights.length - 1].digit;
+          used.add(rebuilt[pos]);
+        }
+      } else {
+        const available = Array.from({ length: 10 }, (_, i) => i).filter((d) => !used.has(d));
+        rebuilt[pos] = available.length > 0
+          ? available[Math.floor(Math.random() * available.length)]
+          : Math.floor(Math.random() * 10);
+        used.add(rebuilt[pos]);
+      }
+    }
+    result = rebuilt;
+  }
+
+  return result;
 }
 
 export default function PredictionGenerator({ lotteryData, analyzedNumbers }: PredictionGeneratorProps) {
@@ -620,6 +703,8 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
   const [useRecentTrendOption, setUseRecentTrendOption] = useState(false);
   /** 체크 시에만 배치 패턴 외 추가 중복 숫자(2종 이상) 허용. 기본 false = 패턴 엄수 */
   const [allowMultipleDuplicateDigitsOption, setAllowMultipleDuplicateDigitsOption] = useState(false);
+  /** 체크 시 6자리 모두 서로 다른 숫자만 생성 (중복 0개). 2종 이상 허용과 상호 배타 */
+  const [disallowDuplicateDigitsOption, setDisallowDuplicateDigitsOption] = useState(false);
   const [gameRecommendations, setGameRecommendations] = useState<{ digit: { key: number; label: string; signalScore: number; overdueRatio: number; frequency: number; absenceCount: number; avgInterval: number; count: number }; pattern: string | null }[]>([]);
 
   // ── 저장 관련 state ──────────────────────────────────────────────────────
@@ -751,7 +836,8 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
         fixedDigits: fixedDigitByPosition,
         limitToStdDev: limitToStdDevOption,
         useRecentTrend: useRecentTrendOption,
-        allowMultipleDuplicateDigits: allowMultipleDuplicateDigitsOption,
+        allowMultipleDuplicateDigits: allowMultipleDuplicateDigitsOption && !disallowDuplicateDigitsOption,
+        disallowDuplicateDigits: disallowDuplicateDigitsOption,
       };
 
       const savedKeys = new Set(savedPredictions.map(d => d.join(',')));
@@ -761,7 +847,8 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
         const s = numbers.reduce((a, b) => a + b, 0);
         const isDuplicate = savedKeys.size > 0 && savedKeys.has(numbers.join(','));
         const outOfStdDev = limitToStdDevOption && Math.abs(s - avgSum) > stdDev;
-        if (!isDuplicate && !outOfStdDev) break;
+        const hasDupDigits = disallowDuplicateDigitsOption && hasAnyDuplicateDigits(numbers);
+        if (!isDuplicate && !outOfStdDev && !hasDupDigits) break;
         numbers = generatePrediction(lotteryData, genOpts);
         retries++;
       }
@@ -1530,10 +1617,30 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
             <input
               type="checkbox"
               checked={allowMultipleDuplicateDigitsOption}
-              onChange={(e) => setAllowMultipleDuplicateDigitsOption(e.target.checked)}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setAllowMultipleDuplicateDigitsOption(checked);
+                if (checked) setDisallowDuplicateDigitsOption(false);
+              }}
               className="w-3.5 h-3.5 accent-purple-600"
             />
             <span className="text-[11px] sm:text-xs text-gray-700">중복 숫자 2종 이상 허용</span>
+          </label>
+          <label
+            className="flex items-center gap-1.5 cursor-pointer select-none"
+            title="체크 시 6자리 모두 서로 다른 숫자만 생성합니다. 배치 패턴·중복 숫자 선택은 무시됩니다."
+          >
+            <input
+              type="checkbox"
+              checked={disallowDuplicateDigitsOption}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setDisallowDuplicateDigitsOption(checked);
+                if (checked) setAllowMultipleDuplicateDigitsOption(false);
+              }}
+              className="w-3.5 h-3.5 accent-purple-600"
+            />
+            <span className="text-[11px] sm:text-xs text-gray-700">중복 숫자 허용 안 함</span>
           </label>
         </div>
       </div>
