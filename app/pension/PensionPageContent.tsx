@@ -79,11 +79,13 @@ export function PensionPageContent() {
           </div>
         ) : (
           <div className="flex flex-col xl:flex-row gap-4 sm:gap-6 lg:gap-8 items-start">
-            {lotteryData.length > 0 && (
-              <aside className="w-full xl:w-80 shrink-0">
+            {/* 왼쪽: 당첨번호 입력 → 당첨번호 리스트 (모바일 포함 항상 표시) */}
+            <aside className="w-full xl:w-80 shrink-0 space-y-3 sm:space-y-4">
+              <DataAdder onDataAdded={handleDataReload} lotteryData={lotteryData} />
+              {lotteryData.length > 0 && (
                 <WinningNumbersList lotteryData={lotteryData} />
-              </aside>
-            )}
+              )}
+            </aside>
 
             <div className="flex-1 min-w-0 w-full">
               {lotteryData.length > 0 && (
@@ -92,9 +94,6 @@ export function PensionPageContent() {
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
                 <div className="space-y-4 sm:space-y-6">
-                  <div className="hidden md:block">
-                    <DataAdder onDataAdded={handleDataReload} lotteryData={lotteryData} />
-                  </div>
                   <DataLoader
                     onDataLoaded={handleDataLoaded}
                     onStatisticsLoaded={() => {}}

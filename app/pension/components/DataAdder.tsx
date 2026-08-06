@@ -10,7 +10,6 @@ interface DataAdderProps {
 }
 
 export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderProps) {
-  const [isOpen, setIsOpen] = useState(true);
   const [formData, setFormData] = useState<number[]>(() => {
     // 기본값: 14개 0으로 초기화
     return Array(14).fill(0);
@@ -165,35 +164,34 @@ export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderPr
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-3 sm:p-4 md:p-6">
-      <div className="flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={handleDownload}
-          className="p-2 sm:p-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors touch-manipulation"
-          title="DB에 있는 연금복권 데이터를 JSON 파일로 저장"
-        >
-          <Download size={18} />
-        </button>
-        <button
-          type="button"
-          onClick={handleRefreshFromDb}
-          disabled={isReanalyzing}
-          className="p-2 sm:p-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
-          title="DB에서 연금복권 당첨 데이터를 다시 불러와 분석을 갱신합니다"
-        >
-          <RefreshCw size={18} className={isReanalyzing ? 'animate-spin' : ''} />
-        </button>
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="p-2 sm:p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors touch-manipulation"
-          title={isOpen ? '닫기' : '데이터 추가'}
-        >
-          <Plus size={18} />
-        </button>
+    <div className="bg-white rounded-lg shadow-lg border border-indigo-100 p-3 sm:p-4">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <h2 className="text-sm font-bold text-gray-800 flex items-center gap-1.5 min-w-0">
+          <Plus size={16} className="text-indigo-600 shrink-0" />
+          <span className="truncate">당첨번호 입력</span>
+        </h2>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="p-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors touch-manipulation"
+            title="DB에 있는 연금복권 데이터를 JSON 파일로 저장"
+          >
+            <Download size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={handleRefreshFromDb}
+            disabled={isReanalyzing}
+            className="p-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
+            title="DB에서 연금복권 당첨 데이터를 다시 불러와 분석을 갱신합니다"
+          >
+            <RefreshCw size={16} className={isReanalyzing ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4 mt-4 sm:mt-6">
+      <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-3">
         {/* 첫 줄: 회차 (자동 설정, 읽기 전용) */}
         <div className="flex gap-2 items-center flex-wrap">
           <div className="w-20 sm:w-24 px-2 py-2 sm:py-2.5 border border-gray-300 rounded-lg bg-gray-50 text-center text-sm sm:text-base font-bold text-gray-700">
