@@ -106,6 +106,62 @@ function meetsPatternConstraints(
   return true;
 }
 
+type PrevBucketKey = "Prev1" | "Prev2" | "Prev3" | "Prev4" | "Prev5";
+
+type PrevNumberStat = {
+  overallAppearRate: number;
+  overallHits: number;
+  /** 전체 회차 수 (1~최신). 구버전 호환: analyzedRounds */
+  totalRounds?: number;
+  analyzedRounds?: number;
+  byGroup: Record<
+    PrevBucketKey,
+    { inGroup: number; hits: number; appearRate: number }
+  >;
+};
+
+type PrevBucketAnalysis = {
+  startRound: number;
+  endRound: number;
+  analyzedRounds: number;
+  nextRound: number;
+  nextGroups: Record<PrevBucketKey, number[]>;
+  nextWindowRounds: Record<"Prev1" | "Prev2" | "Prev3" | "Prev4", number[]>;
+  groupHitCounts: Record<PrevBucketKey, number>;
+  groupHitRatio: Record<PrevBucketKey, number>;
+  /** 당첨 공 1개가 해당 Prev에서 나올 확률(%) */
+  nextAppearProbability?: Record<PrevBucketKey, number>;
+  /** 그룹 소속 번호 1개의 당첨 확률(%) */
+  perNumberHitProbability?: Record<PrevBucketKey, number>;
+  /** 그룹에서 1개 이상 나올 회차 비율(%) */
+  atLeastOneProbability?: Record<PrevBucketKey, number>;
+  avgGroupSize?: Record<PrevBucketKey, number>;
+  avgPerRound: Record<PrevBucketKey, number>;
+  hitCountDistribution?: Record<PrevBucketKey, Record<number, number>>;
+  /** 키: "p1,p2,p3,p4,p5" 개수 구성 (합 6) */
+  compositionDistribution: Record<string, number>;
+  /** 번호별 전체/그룹 출현 확률 (툴팁) */
+  numberStats?: Record<string, PrevNumberStat>;
+};
+
+function prevNumberTooltip(
+  n: number,
+  groupKey: PrevBucketKey,
+  numberStats?: Record<string, PrevNumberStat>
+): string {
+  const st = numberStats?.[String(n)];
+  if (!st) return `${n}번`;
+  const g = st.byGroup?.[groupKey];
+  // overall: 회차 무관 당첨 6개 포함 비율
+  // byGroup: 해당 회차 Prev 그룹에 속했을 때 그 회차(다음 회차) 당첨 비율
+  const totalR = st.totalRounds ?? st.analyzedRounds ?? 0;
+  const overall = `전체 출현(본번호) ${st.overallAppearRate}% (${st.overallHits}/${totalR}회)`;
+  const whenInGroup = g
+    ? `${groupKey}일 때 다음 회차 출현(본번호) ${g.appearRate}% (${g.hits}/${g.inGroup}회)`
+    : `${groupKey}일 때 다음 회차 출현(본번호) —`;
+  return `${n}번\n${overall}\n${whenInGroup}`;
+}
+
 type AnalysisResult = {
   totalRounds: number;
   hot: number[];
@@ -122,8 +178,48 @@ type AnalysisResult = {
     pairDistribution: Record<number, number>;
     maxRunDistribution: Record<number, number>;
   };
+  /** 직전 회차 구간(Prev1~5) 분류 및 당첨 출현 집계 */
+  prevBucketAnalysis?: PrevBucketAnalysis;
   updatedAt: string;
 };
+
+const PREV_BUCKET_LABELS: Record<
+  PrevBucketKey,
+  { title: string; window: string; color: string; ball: string }
+> = {
+  Prev1: {
+    title: "Prev1",
+    window: "직전 1~5회",
+    color: "text-rose-300",
+    ball: "bg-rose-500/30 text-rose-200 border-rose-500/50",
+  },
+  Prev2: {
+    title: "Prev2",
+    window: "직전 6~10회",
+    color: "text-orange-300",
+    ball: "bg-orange-500/30 text-orange-200 border-orange-500/50",
+  },
+  Prev3: {
+    title: "Prev3",
+    window: "직전 11~15회",
+    color: "text-amber-300",
+    ball: "bg-amber-500/30 text-amber-200 border-amber-500/50",
+  },
+  Prev4: {
+    title: "Prev4",
+    window: "직전 16~20회",
+    color: "text-sky-300",
+    ball: "bg-sky-500/30 text-sky-200 border-sky-500/50",
+  },
+  Prev5: {
+    title: "Prev5",
+    window: "그 외(미출현)",
+    color: "text-emerald-300",
+    ball: "bg-emerald-500/30 text-emerald-200 border-emerald-500/50",
+  },
+};
+
+const PREV_BUCKET_ORDER: PrevBucketKey[] = ["Prev1", "Prev2", "Prev3", "Prev4", "Prev5"];
 
 function getGroupKey(num: number): number {
   if (num <= 9) return 9;
@@ -698,6 +794,280 @@ function AnalysisResultView({
           setGroupPatternMinCount={setGroupPatternMinCount}
         />
       ) : null}
+
+      {analysis.prevBucketAnalysis && analysis.prevBucketAnalysis.analyzedRounds > 0 && (
+        <PrevBucketAnalysisBlock data={analysis.prevBucketAnalysis} />
+      )}
+    </div>
+  );
+}
+
+function PrevBucketAnalysisBlock({ data }: { data: PrevBucketAnalysis }) {
+  const topCompositions = Object.entries(data.compositionDistribution)
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12);
+
+  const appearProb = data.nextAppearProbability ?? data.groupHitRatio;
+  const perNumProb = data.perNumberHitProbability;
+  const atLeastProb = data.atLeastOneProbability;
+  const totalBalls = data.analyzedRounds * 6;
+
+  return (
+    <div className="rounded-lg bg-slate-700/40 p-3 space-y-4">
+      <div>
+        <p className="text-slate-200 text-sm font-semibold">
+          직전 회차 구간 그룹 (Prev1~Prev5) · 다음 회차 출현 확률
+        </p>
+        <p className="text-slate-500 text-xs mt-1 leading-relaxed">
+          {data.startRound}~{data.endRound}회({data.analyzedRounds}회) 기준. 대표 수치는 해당 Prev 그룹에서
+          <span className="text-amber-400/90"> 번호가 1개라도 당첨에 나온 회차 비율</span>
+          입니다. 다음 회차(
+          <span className="text-amber-400/90 font-medium">{data.nextRound}회</span>
+          ) 참고용.
+        </p>
+      </div>
+
+      {/* 대표: 1개라도 출현 확률 카드 */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        {PREV_BUCKET_ORDER.map((key) => {
+          const meta = PREV_BUCKET_LABELS[key];
+          const pAny = atLeastProb?.[key];
+          return (
+            <div
+              key={key}
+              className="rounded-lg border border-amber-600/25 bg-slate-900/50 px-2.5 py-2.5 text-center"
+            >
+              <p className={`text-xs font-bold ${meta.color}`}>{meta.title}</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">{meta.window}</p>
+              <p className="text-amber-300 font-bold text-xl tabular-nums mt-1.5 leading-none">
+                {pAny != null ? `${pAny}%` : "—"}
+              </p>
+              <p className="text-[10px] text-slate-500 mt-1">1개라도 출현</p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 상세 표 */}
+      <div className="rounded-lg border border-slate-600/50 bg-slate-800/50 p-3 space-y-2">
+        <p className="text-slate-400 text-xs font-semibold">
+          상세 지표 ({data.startRound}~{data.endRound}회)
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse min-w-[520px]">
+            <thead>
+              <tr className="text-slate-400 border-b border-slate-600">
+                <th className="text-left py-1.5 pr-2 font-medium">그룹</th>
+                <th className="text-left py-1.5 px-1 font-medium">구간</th>
+                <th
+                  className="text-right py-1.5 px-1 font-medium text-amber-400/80"
+                  title="이 그룹에서 1개 이상 나온 회차 비율 (대표)"
+                >
+                  1개라도 출현
+                </th>
+                <th className="text-right py-1.5 px-1 font-medium" title="회차당 평균 몇 개가 이 그룹에서 나오는지">
+                  회당 평균
+                </th>
+                <th className="text-right py-1.5 px-1 font-medium" title="당첨 공 1개가 이 그룹에서 나올 확률">
+                  공 1개 비중
+                </th>
+                <th className="text-right py-1.5 px-1 font-medium" title="이 그룹 번호 1개가 당첨될 확률">
+                  번호 1개 확률
+                </th>
+                <th className="text-right py-1.5 pl-1 font-medium">출현 수</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PREV_BUCKET_ORDER.map((key) => {
+                const meta = PREV_BUCKET_LABELS[key];
+                const pBall = appearProb[key] ?? 0;
+                const pNum = perNumProb?.[key];
+                const pAny = atLeastProb?.[key];
+                const avgSize = data.avgGroupSize?.[key];
+                return (
+                  <tr key={key} className="border-b border-slate-700/80">
+                    <td className={`py-2 pr-2 font-bold ${meta.color}`}>{meta.title}</td>
+                    <td className="py-2 px-1 text-slate-500 whitespace-nowrap">
+                      {meta.window}
+                      {avgSize != null && (
+                        <span className="text-slate-600 ml-1">(평균 {avgSize}개)</span>
+                      )}
+                    </td>
+                    <td className="py-2 px-1 text-right">
+                      <span className="text-amber-300 font-bold text-sm tabular-nums">
+                        {pAny != null ? `${pAny}%` : "—"}
+                      </span>
+                    </td>
+                    <td className="py-2 px-1 text-right text-slate-200 tabular-nums">
+                      {data.avgPerRound[key]}
+                      <span className="text-slate-500">/6</span>
+                    </td>
+                    <td className="py-2 px-1 text-right text-slate-400 tabular-nums">
+                      {pBall}%
+                    </td>
+                    <td className="py-2 px-1 text-right text-sky-300/90 tabular-nums">
+                      {pNum != null ? `${pNum}%` : "—"}
+                    </td>
+                    <td className="py-2 pl-1 text-right text-slate-400 tabular-nums">
+                      {data.groupHitCounts[key]}
+                      <span className="text-slate-600">/{totalBalls}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <ul className="text-[10px] text-slate-500 space-y-0.5 leading-relaxed list-disc pl-3.5">
+          <li>
+            <span className="text-amber-400/80">1개라도 출현</span>
+            (대표): 해당 Prev 그룹 번호가 당첨 6개에 최소 1개 이상 포함된 회차 비율
+          </li>
+          <li>
+            <span className="text-slate-400">공 1개 비중</span>: 당첨 공 전체 중 해당 그룹에서 나온 비율 (합 ≈ 100%)
+          </li>
+          <li>
+            <span className="text-slate-400">번호 1개 확률</span>: 그 회차 그 그룹에 속한 번호 하나가 당첨에
+            포함된 비율
+          </li>
+        </ul>
+
+        {/* 그룹별 출현 개수 확률 (0~6) */}
+        {data.hitCountDistribution && (
+          <div className="border-t border-slate-600/50 pt-2 mt-1 space-y-1.5">
+            <p className="text-slate-500 text-xs">
+              회차당 그룹별 출현 개수 확률 (0~6개)
+            </p>
+            <div className="space-y-1">
+              {PREV_BUCKET_ORDER.map((key) => {
+                const dist = data.hitCountDistribution![key] ?? {};
+                const meta = PREV_BUCKET_LABELS[key];
+                return (
+                  <div key={key} className="flex flex-wrap items-center gap-1 text-[10px]">
+                    <span className={`w-12 shrink-0 font-semibold ${meta.color}`}>{key}</span>
+                    {[0, 1, 2, 3, 4, 5, 6].map((c) => {
+                      const n = dist[c] ?? 0;
+                      const pct =
+                        data.analyzedRounds > 0
+                          ? ((n / data.analyzedRounds) * 100).toFixed(1)
+                          : "0.0";
+                      if (n === 0) {
+                        return (
+                          <span
+                            key={c}
+                            className="inline-flex items-center gap-0.5 rounded bg-slate-900/40 px-1.5 py-0.5 text-slate-600"
+                          >
+                            {c}:{pct}%
+                          </span>
+                        );
+                      }
+                      return (
+                        <span
+                          key={c}
+                          className="inline-flex items-center gap-0.5 rounded bg-slate-900/70 border border-slate-600/40 px-1.5 py-0.5 text-slate-300"
+                          title={`${n}회`}
+                        >
+                          <span className="text-slate-500">{c}개</span>
+                          <span className="text-amber-400/90 font-medium">{pct}%</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 구성 패턴 */}
+      <div className="rounded-lg border border-slate-600/60 bg-slate-800/40 p-3 space-y-2">
+        {topCompositions.length > 0 && (
+          <div>
+            <p className="text-slate-500 text-xs mb-1.5">
+              회차별 구성 (Prev1~5 개수, 합 6) — 빈도 상위
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {topCompositions.map(({ key, count }) => {
+                const pct =
+                  data.analyzedRounds > 0
+                    ? ((count / data.analyzedRounds) * 100).toFixed(1)
+                    : "0.0";
+                return (
+                  <div
+                    key={key}
+                    className="inline-flex items-center gap-1.5 rounded bg-slate-900/60 border border-slate-600/40 px-2 py-1 text-[11px]"
+                    title={`Prev1~5 개수 = ${key}`}
+                  >
+                    <span className="font-mono text-slate-300">{key}</span>
+                    <span className="text-emerald-400/90 font-medium">{count}회</span>
+                    <span className="text-slate-500">{pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 다음 회차 Prev 그룹 */}
+      <div className="space-y-2">
+        <p className="text-slate-400 text-xs font-medium">
+          {data.nextRound}회 기준 Prev 그룹 번호
+          <span className="text-slate-500 font-normal">
+            {" "}
+            (직전 {data.nextRound - 1}~{data.nextRound - 20}회 반영 · 배타 분류)
+          </span>
+        </p>
+        <div className="space-y-2.5">
+          {PREV_BUCKET_ORDER.map((key) => {
+            const meta = PREV_BUCKET_LABELS[key];
+            const nums = data.nextGroups[key] ?? [];
+            const wr =
+              key === "Prev5"
+                ? null
+                : data.nextWindowRounds[key as "Prev1" | "Prev2" | "Prev3" | "Prev4"];
+            return (
+              <div
+                key={key}
+                className="rounded-lg border border-slate-600/50 bg-slate-800/50 p-2.5"
+              >
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 mb-1.5">
+                  <span className={`text-xs font-bold ${meta.color}`}>{meta.title}</span>
+                  <span className="text-[11px] text-slate-500">{meta.window}</span>
+                  {wr && wr.length > 0 && (
+                    <span className="text-[10px] text-slate-600 font-mono">
+                      회차 {wr[wr.length - 1]}~{wr[0]}
+                    </span>
+                  )}
+                  <span className="text-[11px] text-slate-400 ml-auto">
+                    {nums.length}개
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {nums.length === 0 ? (
+                    <span className="text-slate-600 text-xs">없음</span>
+                  ) : (
+                    nums.map((n) => (
+                      <span
+                        key={n}
+                        title={prevNumberTooltip(n, key, data.numberStats)}
+                        className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-semibold border cursor-help ${meta.ball}`}
+                      >
+                        {n}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[10px] text-slate-600">
+          같은 번호가 여러 구간에 나와도 더 최근 구간(Prev1 쪽)에만 배정됩니다. Prev1~4 합 + Prev5 = 45.
+        </p>
+      </div>
     </div>
   );
 }
@@ -861,23 +1231,7 @@ export function LottoPageBody() {
   const [allRounds, setAllRounds] = useState<{ round: number; n1: number; n2: number; n3: number; n4: number; n5: number; n6: number; bonus: number }[]>([]);
   const [allRoundsLoading, setAllRoundsLoading] = useState(false);
   const [mainTab, setMainTab] = useState<"draw" | "stats">("draw");
-  const [analysis, setAnalysis] = useState<{
-    totalRounds: number;
-    hot: number[];
-    cold: number[];
-    sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> };
-    group9_45Distribution?: Record<string, number>;
-    groupPatternDistribution?: Record<string, number>;
-    groupPatternRounds?: Record<string, number[]>;
-    latestRound?: number;
-    consecutivePattern?: {
-      avgConsecutivePairs: number;
-      avgMaxRun: number;
-      pairDistribution: Record<number, number>;
-      maxRunDistribution: Record<number, number>;
-    };
-    updatedAt: string;
-  } | null>(null);
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   /** 5그룹 패턴 표: 마지막 출현 회차가 이 값 미만이면 행 숨김. null이면 필터 없음 */
   const [groupPatternCutoffRound, setGroupPatternCutoffRound] = useState<number | null>(1100);
   /** 5그룹 패턴 표: 전체 출현 건수가 이 값 미만이면 행 숨김 */

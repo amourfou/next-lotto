@@ -172,7 +172,52 @@ type Scope = {
   allRoundsLoading: boolean;
   mainTab: "draw" | "stats";
   setMainTab: (v: "draw" | "stats") => void;
-  analysis: { totalRounds: number; hot: number[]; cold: number[]; sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> }; group9_45Distribution?: Record<string, number>; groupPatternDistribution?: Record<string, number>; groupPatternRounds?: Record<string, number[]>; latestRound?: number; consecutivePattern?: { avgConsecutivePairs: number; avgMaxRun: number; pairDistribution: Record<number, number>; maxRunDistribution: Record<number, number> }; updatedAt: string } | null;
+  analysis: {
+    totalRounds: number;
+    hot: number[];
+    cold: number[];
+    sumPattern?: { min: number; max: number; avg: number; histogram: Record<number, number> };
+    group9_45Distribution?: Record<string, number>;
+    groupPatternDistribution?: Record<string, number>;
+    groupPatternRounds?: Record<string, number[]>;
+    latestRound?: number;
+    consecutivePattern?: {
+      avgConsecutivePairs: number;
+      avgMaxRun: number;
+      pairDistribution: Record<number, number>;
+      maxRunDistribution: Record<number, number>;
+    };
+    prevBucketAnalysis?: {
+      startRound: number;
+      endRound: number;
+      analyzedRounds: number;
+      nextRound: number;
+      nextGroups: Record<string, number[]>;
+      nextWindowRounds?: Record<string, number[]>;
+      groupHitCounts: Record<string, number>;
+      groupHitRatio: Record<string, number>;
+      nextAppearProbability?: Record<string, number>;
+      perNumberHitProbability?: Record<string, number>;
+      atLeastOneProbability?: Record<string, number>;
+      avgGroupSize?: Record<string, number>;
+      avgPerRound: Record<string, number>;
+      compositionDistribution: Record<string, number>;
+      numberStats?: Record<
+        string,
+        {
+          overallAppearRate: number;
+          overallHits: number;
+          totalRounds?: number;
+          analyzedRounds?: number;
+          byGroup: Record<
+            string,
+            { inGroup: number; hits: number; appearRate: number }
+          >;
+        }
+      >;
+    };
+    updatedAt: string;
+  } | null;
   analysisLoading: boolean;
   saveDrawnLoading: boolean;
   saveDrawnMessage: { type: "ok" | "error"; text: string } | null;
@@ -346,8 +391,8 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
   };
 
   return (
-    <main className="flex flex-col items-center w-full flex-1 min-h-0 overflow-y-auto p-6 pb-12">
-      <div className="w-full max-w-[1400px] flex border-b border-slate-600/50 mb-6">
+    <main className="flex flex-col items-center w-full flex-1 min-h-0 overflow-hidden px-6 pt-6 pb-0">
+      <div className="w-full max-w-[1400px] flex border-b border-slate-600/50 mb-4 shrink-0">
         {(["draw", "stats"] as const).map((tab) => (
           <button
             key={tab}
@@ -364,113 +409,9 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
         ))}
       </div>
 
-      {s.mainTab === "draw" && <div className="flex flex-wrap items-center justify-center gap-3 mb-4">
-        <span className="text-slate-400 text-sm">게임 수</span>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            disabled={s.gameCount <= s.MIN_GAMES || s.isDrawing}
-            onClick={() => s.setGameCount((c) => Math.max(s.MIN_GAMES, c - 1))}
-            className="w-8 h-8 rounded-lg bg-slate-600 text-slate-300 disabled:opacity-40 font-bold text-sm"
-          >
-            −
-          </button>
-          <input
-            type="number"
-            min={s.MIN_GAMES}
-            max={s.MAX_GAMES}
-            value={s.gameCount}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (!Number.isNaN(v)) s.setGameCount(Math.min(s.MAX_GAMES, Math.max(s.MIN_GAMES, v)));
-            }}
-            className="w-14 text-center rounded-lg bg-slate-700 text-white font-semibold py-1.5 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-          />
-          <button
-            type="button"
-            disabled={s.gameCount >= s.MAX_GAMES || s.isDrawing}
-            onClick={() => s.setGameCount((c) => Math.min(s.MAX_GAMES, c + 1))}
-            className="w-8 h-8 rounded-lg bg-slate-600 text-slate-300 disabled:opacity-40 font-bold text-sm"
-          >
-            +
-          </button>
-        </div>
-        <span className="text-slate-500 text-xs">(1~{s.MAX_GAMES})</span>
-        <button
-          onClick={s.handleDraw}
-          disabled={s.isDrawing || !s.canDraw}
-          className="ml-1 px-5 py-2.5 rounded-xl font-semibold text-sm bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/30 hover:from-amber-400 hover:to-orange-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:scale-105 active:scale-95"
-        >
-          {s.isDrawing ? "뽑는 중.." : `${s.gameCount}게임 뽑기`}
-        </button>
-        <button
-          type="button"
-          disabled={s.games.length === 0}
-          onClick={() => {
-            const lines = [
-              `for ${s.nextRound}`,
-              "================================ ",
-              ...s.games.map(
-                (nums, i) =>
-                  `${String(i + 1).padStart(2)} : [ ${nums.map((n) => String(n).padStart(2)).join(", ")} ], `
-              ),
-              "================================",
-            ];
-            navigator.clipboard.writeText(lines.join("\n"));
-          }}
-          className="px-4 py-2.5 rounded-xl text-sm font-medium bg-slate-600 text-slate-200 hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          클립보드로 복사
-        </button>
-        <button
-          type="button"
-          disabled={s.games.length === 0 || s.saveDrawnLoading}
-          onClick={async () => {
-            s.setSaveDrawnMessage(null);
-            s.setSaveDrawnLoading(true);
-            try {
-              const existing = new Set(s.savedDrawnList.map((nums) => toSetKey(nums)));
-              const newOnes = s.games.filter((g) => !existing.has(toSetKey(g)));
-              const newList = [...s.savedDrawnList, ...newOnes];
-              const res = await fetch("/api/lotto/save-drawn", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ games: newList }),
-              });
-              const data = await res.json();
-              if (!res.ok) {
-                s.setSaveDrawnMessage({ type: "error", text: data.error ?? "저장 실패" });
-                return;
-              }
-              s.setSaveDrawnMessage({ type: "ok", text: data.message ?? "저장됨" });
-              s.setSavedDrawnList(newList);
-              const listRes = await fetch("/api/lotto?limit=20");
-              const listJson = await listRes.json();
-              if (!listJson.error && listJson.data)
-                s.setSavedRounds({ data: listJson.data, total: listJson.total ?? 0 });
-              s.fetchExclusionData();
-            } catch {
-              s.setSaveDrawnMessage({ type: "error", text: "통신 실패" });
-            } finally {
-              s.setSaveDrawnLoading(false);
-            }
-          }}
-          className="px-4 py-2.5 rounded-xl text-sm font-medium bg-slate-600 text-slate-200 hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {s.saveDrawnLoading ? "저장 중.." : "DB에 저장"}
-        </button>
-        <button
-          type="button"
-          onClick={handleOpenHistory}
-          className="px-4 py-2.5 rounded-xl text-sm font-medium bg-slate-600 text-slate-200 hover:bg-slate-500"
-          title="저장된 추출 번호 보기"
-        >
-          저장번호보기
-        </button>
-      </div>}
-
       {s.mainTab === "stats" ? (
-        <div className="w-full max-w-3xl mt-4 space-y-4">
+        <div className="flex-1 min-h-0 w-full overflow-y-auto flex flex-col items-center pb-12 [scrollbar-width:thin]">
+        <div className="w-full max-w-3xl space-y-4">
           <div className="flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
@@ -623,7 +564,113 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
             )}
           </div>
         </div>
+        </div>
       ) : (
+        <div className="flex-1 min-h-0 w-full overflow-y-auto flex flex-col items-center pb-12 [scrollbar-width:thin]">
+        <div className="flex flex-wrap items-center justify-center gap-3 mb-4 shrink-0">
+          <span className="text-slate-400 text-sm">게임 수</span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={s.gameCount <= s.MIN_GAMES || s.isDrawing}
+              onClick={() => s.setGameCount((c) => Math.max(s.MIN_GAMES, c - 1))}
+              className="w-8 h-8 rounded-lg bg-slate-600 text-slate-300 disabled:opacity-40 font-bold text-sm"
+            >
+              −
+            </button>
+            <input
+              type="number"
+              min={s.MIN_GAMES}
+              max={s.MAX_GAMES}
+              value={s.gameCount}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                if (!Number.isNaN(v)) s.setGameCount(Math.min(s.MAX_GAMES, Math.max(s.MIN_GAMES, v)));
+              }}
+              className="w-14 text-center rounded-lg bg-slate-700 text-white font-semibold py-1.5 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            <button
+              type="button"
+              disabled={s.gameCount >= s.MAX_GAMES || s.isDrawing}
+              onClick={() => s.setGameCount((c) => Math.min(s.MAX_GAMES, c + 1))}
+              className="w-8 h-8 rounded-lg bg-slate-600 text-slate-300 disabled:opacity-40 font-bold text-sm"
+            >
+              +
+            </button>
+          </div>
+          <span className="text-slate-500 text-xs">(1~{s.MAX_GAMES})</span>
+          <button
+            onClick={s.handleDraw}
+            disabled={s.isDrawing || !s.canDraw}
+            className="ml-1 px-5 py-2.5 rounded-xl font-semibold text-sm bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/30 hover:from-amber-400 hover:to-orange-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:scale-105 active:scale-95"
+          >
+            {s.isDrawing ? "뽑는 중.." : `${s.gameCount}게임 뽑기`}
+          </button>
+          <button
+            type="button"
+            disabled={s.games.length === 0}
+            onClick={() => {
+              const lines = [
+                `for ${s.nextRound}`,
+                "================================ ",
+                ...s.games.map(
+                  (nums, i) =>
+                    `${String(i + 1).padStart(2)} : [ ${nums.map((n) => String(n).padStart(2)).join(", ")} ], `
+                ),
+                "================================",
+              ];
+              navigator.clipboard.writeText(lines.join("\n"));
+            }}
+            className="px-4 py-2.5 rounded-xl text-sm font-medium bg-slate-600 text-slate-200 hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            클립보드로 복사
+          </button>
+          <button
+            type="button"
+            disabled={s.games.length === 0 || s.saveDrawnLoading}
+            onClick={async () => {
+              s.setSaveDrawnMessage(null);
+              s.setSaveDrawnLoading(true);
+              try {
+                const existing = new Set(s.savedDrawnList.map((nums) => toSetKey(nums)));
+                const newOnes = s.games.filter((g) => !existing.has(toSetKey(g)));
+                const newList = [...s.savedDrawnList, ...newOnes];
+                const res = await fetch("/api/lotto/save-drawn", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ games: newList }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                  s.setSaveDrawnMessage({ type: "error", text: data.error ?? "저장 실패" });
+                  return;
+                }
+                s.setSaveDrawnMessage({ type: "ok", text: data.message ?? "저장됨" });
+                s.setSavedDrawnList(newList);
+                const listRes = await fetch("/api/lotto?limit=20");
+                const listJson = await listRes.json();
+                if (!listJson.error && listJson.data)
+                  s.setSavedRounds({ data: listJson.data, total: listJson.total ?? 0 });
+                s.fetchExclusionData();
+              } catch {
+                s.setSaveDrawnMessage({ type: "error", text: "통신 실패" });
+              } finally {
+                s.setSaveDrawnLoading(false);
+              }
+            }}
+            className="px-4 py-2.5 rounded-xl text-sm font-medium bg-slate-600 text-slate-200 hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {s.saveDrawnLoading ? "저장 중.." : "DB에 저장"}
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenHistory}
+            className="px-4 py-2.5 rounded-xl text-sm font-medium bg-slate-600 text-slate-200 hover:bg-slate-500"
+            title="저장된 추출 번호 보기"
+          >
+            저장번호보기
+          </button>
+        </div>
         <div className="w-full max-w-[1400px] flex flex-col items-center">
           {s.seedMessage && (
             <p className={`text-center text-sm mb-1 ${s.seedMessage.type === "ok" ? "text-emerald-400" : "text-red-400"}`}>
@@ -710,16 +757,285 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
             </div>
             <div className="rounded-b-xl bg-slate-800/50 border border-t-0 border-slate-600/50 p-4 min-h-[140px]">
               {s.activeTab === "number" && (
-                <div>
-                  <h2 className="text-slate-400 font-semibold text-sm mb-3 text-center">
-                    꼭 넣을 번호 / 꼭 뺄 번호 / 하나만 포함 번호 선택
-                  </h2>
-                  <NumberFilter
-                    filterStates={s.filterStates}
-                    currentCategory={s.currentCategory}
-                    onCategoryChange={s.handleCategoryChange}
-                    onNumberClick={s.handleNumberClick}
-                  />
+                <div className="flex flex-col md:flex-row gap-3 items-start">
+                  {/* 왼쪽: 번호 선택 */}
+                  <div className="shrink-0 w-full md:w-auto">
+                    <h2 className="text-slate-400 font-semibold text-sm mb-3 text-center md:text-left">
+                      꼭 넣을 번호 / 꼭 뺄 번호 / 하나만 포함 번호 선택
+                    </h2>
+                    <NumberFilter
+                      filterStates={s.filterStates}
+                      currentCategory={s.currentCategory}
+                      onCategoryChange={s.handleCategoryChange}
+                      onNumberClick={s.handleNumberClick}
+                    />
+                  </div>
+
+                  {/* Prev1~5 번호 + 이진 패턴 확률 */}
+                  {(() => {
+                    const pb = s.analysis?.prevBucketAnalysis;
+                    const KEYS = ["Prev1", "Prev2", "Prev3", "Prev4", "Prev5"] as const;
+                    const META: Record<
+                      (typeof KEYS)[number],
+                      { window: string; color: string; rgb: string }
+                    > = {
+                      Prev1: {
+                        window: "1~5회",
+                        color: "text-rose-300",
+                        rgb: "244,63,94",
+                      },
+                      Prev2: {
+                        window: "6~10회",
+                        color: "text-orange-300",
+                        rgb: "249,115,22",
+                      },
+                      Prev3: {
+                        window: "11~15회",
+                        color: "text-amber-300",
+                        rgb: "245,158,11",
+                      },
+                      Prev4: {
+                        window: "16~20회",
+                        color: "text-sky-300",
+                        rgb: "14,165,233",
+                      },
+                      Prev5: {
+                        window: "그 외",
+                        color: "text-emerald-300",
+                        rgb: "16,185,129",
+                      },
+                    };
+
+                    if (!pb || pb.analyzedRounds <= 0) {
+                      return (
+                        <div className="rounded-lg border border-slate-600/40 bg-slate-900/30 px-3 py-4 text-center space-y-2 min-h-[120px] flex flex-col items-center justify-center">
+                          <p className="text-slate-200 text-sm">
+                            Prev1~5 · 분석을 실행하면 표시됩니다
+                          </p>
+                          <button
+                            type="button"
+                            onClick={s.runAnalysis}
+                            disabled={s.analysisLoading}
+                            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-500/90 text-slate-900 hover:bg-amber-400 disabled:opacity-50"
+                          >
+                            {s.analysisLoading ? "분석 중.." : "분석 실행"}
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    const atLeast = pb.atLeastOneProbability ?? {};
+                    const groupAppearRate = (n: number, groupKey: (typeof KEYS)[number]) =>
+                      pb.numberStats?.[String(n)]?.byGroup?.[groupKey]?.appearRate ?? 0;
+
+                    const overallAppearRate = (n: number) =>
+                      pb.numberStats?.[String(n)]?.overallAppearRate ?? 0;
+
+                    /**
+                     * Prev 그룹별 순위 (1=최고).
+                     * 1) 그룹 내 다음회차 출현확률 내림차순
+                     * 2) 동점이면 전체 출현 확률 내림차순
+                     * 3) 그래도 같으면 번호 오름차순
+                     */
+                    const rankByGroup = {} as Record<(typeof KEYS)[number], Map<number, number>>;
+                    for (const key of KEYS) {
+                      const nums = [...(pb.nextGroups[key] ?? [])];
+                      nums.sort((a, b) => {
+                        const ra = groupAppearRate(a, key);
+                        const rb = groupAppearRate(b, key);
+                        if (rb !== ra) return rb - ra;
+                        const oa = overallAppearRate(a);
+                        const ob = overallAppearRate(b);
+                        if (ob !== oa) return ob - oa;
+                        return a - b;
+                      });
+                      const m = new Map<number, number>();
+                      nums.forEach((n, i) => m.set(n, i + 1));
+                      rankByGroup[key] = m;
+                    }
+
+                    const ballStyle = (n: number, groupKey: (typeof KEYS)[number]) => {
+                      const nums = pb.nextGroups[groupKey] ?? [];
+                      const size = Math.max(1, nums.length);
+                      const rank = rankByGroup[groupKey]?.get(n) ?? size;
+                      // rank 1(최고) → t=1 진함, rank=size(최저) → t=0 연함
+                      const t = size <= 1 ? 1 : (size - rank) / (size - 1);
+                      const bgA = 0.12 + 0.78 * t;
+                      const borderA = 0.3 + 0.65 * t;
+                      const rgb = META[groupKey].rgb;
+                      return {
+                        backgroundColor: `rgba(${rgb},${bgA.toFixed(3)})`,
+                        borderColor: `rgba(${rgb},${borderA.toFixed(3)})`,
+                        color: t >= 0.45 ? "#fff" : `rgba(${rgb},1)`,
+                        boxShadow:
+                          t >= 0.7
+                            ? `0 0 0 1px rgba(${rgb},0.45), 0 0 8px rgba(${rgb},0.35)`
+                            : undefined,
+                      } as React.CSSProperties;
+                    };
+
+                    const numTip = (n: number, groupKey: (typeof KEYS)[number]) => {
+                      const st = pb.numberStats?.[String(n)];
+                      if (!st) return `${n}번`;
+                      const g = st.byGroup?.[groupKey];
+                      const totalR = st.totalRounds ?? st.analyzedRounds ?? 0;
+                      const rank = rankByGroup[groupKey]?.get(n);
+                      const size = (pb.nextGroups[groupKey] ?? []).length;
+                      const overall = `전체 출현(본번호) ${st.overallAppearRate}% (${st.overallHits}/${totalR}회)`;
+                      const whenInGroup = g
+                        ? `${groupKey}일 때 다음 회차 출현(본번호) ${g.appearRate}% (${g.hits}/${g.inGroup}회)`
+                        : `${groupKey}일 때 다음 회차 출현(본번호) —`;
+                      const rankLine =
+                        rank != null && size > 0
+                          ? `${groupKey} 내 순위 ${rank}/${size}위`
+                          : "";
+                      return [n + "번", overall, whenInGroup, rankLine].filter(Boolean).join("\n");
+                    };
+
+                    /** "4,1,1,0,0" → "11100" (그룹에 1개라도 나오면 1) */
+                    const toBinaryPattern = (compKey: string) =>
+                      compKey
+                        .split(",")
+                        .map((part) => {
+                          const n = parseInt(part, 10);
+                          return !Number.isNaN(n) && n > 0 ? "1" : "0";
+                        })
+                        .join("");
+
+                    const binaryDist: Record<string, number> = {};
+                    for (const [compKey, count] of Object.entries(
+                      pb.compositionDistribution ?? {}
+                    )) {
+                      const bin = toBinaryPattern(compKey);
+                      if (bin.length !== 5) continue;
+                      binaryDist[bin] = (binaryDist[bin] ?? 0) + count;
+                    }
+                    const binaryPatterns = Object.entries(binaryDist)
+                      .map(([pattern, count]) => ({
+                        pattern,
+                        count,
+                        pct:
+                          pb.analyzedRounds > 0
+                            ? Math.round((count / pb.analyzedRounds) * 1000) / 10
+                            : 0,
+                      }))
+                      .sort((a, b) => b.count - a.count || a.pattern.localeCompare(b.pattern));
+
+                    // relative 높이 = Prev 패널만 반영. 패턴 패널은 absolute로 같은 높이에 고정 후 내부 스크롤
+                    return (
+                      <div className="relative w-full md:w-[calc(33.6rem+0.75rem+14.3rem)] shrink-0">
+                        {/* Prev 번호 목록 (높이 기준) — 기존 42rem의 약 80% */}
+                        <div className="w-full md:w-[33.6rem]">
+                          <div className="rounded-lg border border-amber-500/40 bg-slate-900/30 px-2.5 py-2.5 space-y-2.5">
+                            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                              <p className="text-white text-sm font-semibold">
+                                Prev1~5 · 1개라도 출현
+                              </p>
+                              <p className="text-xs text-amber-200/90">
+                                {pb.startRound}~{pb.endRound} ·{" "}
+                                <span className="text-amber-300 font-semibold">{pb.nextRound}회</span>
+                              </p>
+                            </div>
+
+                            <div className="flex flex-nowrap justify-between gap-1">
+                              {KEYS.map((key) => {
+                                const meta = META[key];
+                                const p = atLeast[key];
+                                return (
+                                  <div
+                                    key={key}
+                                    className="flex flex-col items-center min-w-0 flex-1 rounded border border-slate-500/50 bg-slate-800/70 px-0.5 py-1.5"
+                                    title={meta.window}
+                                  >
+                                    <span className={`text-[11px] font-bold leading-none ${meta.color}`}>
+                                      {key}
+                                    </span>
+                                    <span className="text-amber-300 font-bold text-sm tabular-nums leading-none mt-1">
+                                      {p != null ? `${p}%` : "—"}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            <div className="space-y-2.5">
+                              {KEYS.map((key) => {
+                                const meta = META[key];
+                                const nums = pb.nextGroups[key] ?? [];
+                                const p = atLeast[key];
+                                return (
+                                  <div key={key} className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-1">
+                                      <span className={`text-sm font-bold ${meta.color}`}>{key}</span>
+                                      <span className="text-xs text-amber-100/90">{meta.window}</span>
+                                      <span className="text-sm text-amber-300 font-bold tabular-nums">
+                                        {p != null ? `${p}%` : "—"}
+                                      </span>
+                                      <span className="text-xs text-white/90">{nums.length}개</span>
+                                    </div>
+                                    {nums.length === 0 ? (
+                                      <span className="text-white/80 text-sm">—</span>
+                                    ) : (
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {nums.map((n) => (
+                                          <span
+                                            key={n}
+                                            title={numTip(n, key)}
+                                            style={ballStyle(n, key)}
+                                            className="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold border cursor-help"
+                                          >
+                                            {n}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 패턴 리스트: Prev 높이에 고정, 내부만 스크롤 (md+) / 모바일은 제한 높이 */}
+                        <div className="mt-3 md:mt-0 w-full md:w-[14.3rem] md:absolute md:top-0 md:bottom-0 md:right-0 flex flex-col min-h-0 overflow-hidden rounded-lg border border-violet-500/40 bg-slate-900/30 px-2.5 py-2.5 max-h-64 md:max-h-none">
+                          <p className="text-white text-sm font-semibold mb-0.5 shrink-0">
+                            Prev 패턴 확률
+                          </p>
+                          <p className="text-xs text-violet-200/90 mb-2 leading-snug shrink-0">
+                            자리=Prev1~5 · 1=1개↑ · 0=미출현
+                            <br />
+                            {pb.startRound}~{pb.endRound} · {pb.analyzedRounds}회
+                          </p>
+                          {binaryPatterns.length === 0 ? (
+                            <p className="text-white/80 text-sm">데이터 없음</p>
+                          ) : (
+                            <div className="space-y-1 flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+                              {binaryPatterns.map(({ pattern, count, pct }) => (
+                                <div
+                                  key={pattern}
+                                  className="flex items-center gap-2 rounded border border-slate-500/40 bg-slate-800/60 px-2 py-1.5"
+                                  title={pattern
+                                    .split("")
+                                    .map((bit, i) => `Prev${i + 1}:${bit === "1" ? "출현" : "없음"}`)
+                                    .join(" ")}
+                                >
+                                  <span className="font-mono text-sm font-bold text-violet-200 tracking-wider tabular-nums">
+                                    {pattern}
+                                  </span>
+                                  <span className="text-amber-300 font-bold text-sm tabular-nums ml-auto">
+                                    {pct}%
+                                  </span>
+                                  <span className="text-xs text-white/90 tabular-nums w-10 text-right">
+                                    {count}회
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
               {s.activeTab === "group" && (
@@ -1204,6 +1520,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
             </div>
             </section>
           </div>
+        </div>
         </div>
       )}
 

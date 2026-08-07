@@ -36,6 +36,37 @@ export async function GET() {
         pairDistribution: Record<number, number>;
         maxRunDistribution: Record<number, number>;
       };
+      /** 직전 1~20회 구간 Prev1~5 분류 및 101회~최신 당첨 출현 집계 */
+      prevBucketAnalysis?: {
+        startRound: number;
+        endRound: number;
+        analyzedRounds: number;
+        nextRound: number;
+        nextGroups: Record<string, number[]>;
+        nextWindowRounds: Record<string, number[]>;
+        groupHitCounts: Record<string, number>;
+        groupHitRatio: Record<string, number>;
+        nextAppearProbability?: Record<string, number>;
+        perNumberHitProbability?: Record<string, number>;
+        atLeastOneProbability?: Record<string, number>;
+        avgGroupSize?: Record<string, number>;
+        avgPerRound: Record<string, number>;
+        hitCountDistribution?: Record<string, Record<number, number>>;
+        compositionDistribution: Record<string, number>;
+        numberStats?: Record<
+          string,
+          {
+            overallAppearRate: number;
+            overallHits: number;
+            totalRounds?: number;
+            analyzedRounds?: number;
+            byGroup: Record<
+              string,
+              { inGroup: number; hits: number; appearRate: number }
+            >;
+          }
+        >;
+      };
       updatedAt: string;
     };
     return NextResponse.json({
