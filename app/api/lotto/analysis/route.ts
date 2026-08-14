@@ -36,6 +36,17 @@ export async function GET() {
         pairDistribution: Record<number, number>;
         maxRunDistribution: Record<number, number>;
       };
+      positionFrequency?: {
+        totalRounds: number;
+        positions: {
+          position: number;
+          theoryMin: number;
+          theoryMax: number;
+          observedMin: number;
+          observedMax: number;
+          entries: { num: number; count: number; pct: number }[];
+        }[];
+      };
       /** 직전 1~20회 구간 Prev1~5 분류 및 101회~최신 당첨 출현 집계 */
       prevBucketAnalysis?: {
         startRound: number;

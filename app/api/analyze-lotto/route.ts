@@ -437,6 +437,55 @@ export async function POST() {
 
     const latestRound = rows[rows.length - 1]!.round;
     const prevBucketAnalysis = analyzePrevBuckets(rows);
+
+    /**
+     * 정렬된 6자리(1번째=최소 … 6번째=최대)별 번호 출현 횟수·비율.
+     * 이론 범위: 자리 k(1~6) → k ~ (40+k)
+     */
+    const positionCounts: Record<number, number>[] = Array.from({ length: 6 }, () => {
+      const c: Record<number, number> = {};
+      for (let n = 1; n <= 45; n++) c[n] = 0;
+      return c;
+    });
+    for (const r of rows) {
+      const sorted = mainSix(r).filter((n) => n >= 1 && n <= 45).sort((a, b) => a - b);
+      if (sorted.length !== 6) continue;
+      for (let i = 0; i < 6; i++) {
+        const n = sorted[i]!;
+        positionCounts[i]![n] = (positionCounts[i]![n] ?? 0) + 1;
+      }
+    }
+    const totalPosRounds = rows.length;
+    const positionFrequency = {
+      totalRounds: totalPosRounds,
+      positions: positionCounts.map((counts, i) => {
+        const theoryMin = i + 1;
+        const theoryMax = 40 + i;
+        const entries = Object.entries(counts)
+          .map(([num, count]) => ({
+            num: parseInt(num, 10),
+            count,
+            pct:
+              totalPosRounds > 0
+                ? Math.round((count / totalPosRounds) * 1000) / 10
+                : 0,
+          }))
+          .filter((e) => e.count > 0)
+          .sort((a, b) => a.num - b.num);
+        const observedMin = entries.length > 0 ? entries[0]!.num : theoryMin;
+        const observedMax =
+          entries.length > 0 ? entries[entries.length - 1]!.num : theoryMax;
+        return {
+          position: i + 1,
+          theoryMin,
+          theoryMax,
+          observedMin,
+          observedMax,
+          entries,
+        };
+      }),
+    };
+
     const updatedAt = new Date().toISOString();
 
     const analysis = {
@@ -461,6 +510,7 @@ export async function POST() {
       groupPatternRounds,
       latestRound,
       prevBucketAnalysis,
+      positionFrequency,
       updatedAt,
     };
 

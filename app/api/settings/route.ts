@@ -18,6 +18,10 @@ export type DrawSettingsPayload = {
     sumMin?: number | null;
     sumMax?: number | null;
     maxConsecutivePairs?: number | null;
+    /** 2=3개 이상 연속 금지. null/미설정=제한 없음 */
+    maxConsecutiveRun?: number | null;
+    /** 정렬 6자리별 허용 min/max (null=제한 없음) */
+    positionLimits?: { min?: number | null; max?: number | null }[];
     group9_45Keys?: string[];
     oddEvenKeys?: string[];
     prevRoundKeys?: number[];
@@ -50,6 +54,8 @@ export async function GET() {
       sumMin?: number | null;
       sumMax?: number | null;
       maxConsecutivePairs?: number | null;
+      maxConsecutiveRun?: number | null;
+      positionLimits?: { min?: number | null; max?: number | null }[];
       group9_45Keys?: string[];
       oddEvenKeys?: string[];
       prevRoundKeys?: number[];
@@ -108,9 +114,19 @@ export async function POST(request: NextRequest) {
             sumMin: body.patternSettings.sumMin ?? null,
             sumMax: body.patternSettings.sumMax ?? null,
             maxConsecutivePairs: body.patternSettings.maxConsecutivePairs ?? null,
-            group9_45Keys: Array.isArray(body.patternSettings.group9_45Keys) ? body.patternSettings.group9_45Keys : [],
-            oddEvenKeys: Array.isArray(body.patternSettings.oddEvenKeys) ? body.patternSettings.oddEvenKeys : [],
-            prevRoundKeys: Array.isArray(body.patternSettings.prevRoundKeys) ? body.patternSettings.prevRoundKeys : [],
+            maxConsecutiveRun: body.patternSettings.maxConsecutiveRun ?? null,
+            positionLimits: Array.isArray(body.patternSettings.positionLimits)
+              ? body.patternSettings.positionLimits
+              : undefined,
+            group9_45Keys: Array.isArray(body.patternSettings.group9_45Keys)
+              ? body.patternSettings.group9_45Keys
+              : [],
+            oddEvenKeys: Array.isArray(body.patternSettings.oddEvenKeys)
+              ? body.patternSettings.oddEvenKeys
+              : [],
+            prevRoundKeys: Array.isArray(body.patternSettings.prevRoundKeys)
+              ? body.patternSettings.prevRoundKeys
+              : [],
           })
         : "{}";
 

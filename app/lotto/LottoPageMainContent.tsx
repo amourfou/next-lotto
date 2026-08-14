@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import NumberFilter, { type NumberFilterState, type FilterCategory } from "../components/NumberFilter";
 import GroupCountSelector from "../components/GroupCountSelector";
 
@@ -159,10 +159,16 @@ type Scope = {
   groupEnabled: Record<number, boolean>;
   seedLoading: boolean;
   seedMessage: { type: "ok" | "error"; text: string } | null;
-  activeTab: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound";
+  activeTab: "number" | "position" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound";
   sumMin: number | null;
   sumMax: number | null;
   maxConsecutivePairs: number | null;
+  /** 2=3개 이상 연속 금지, null=제한 없음 */
+  maxConsecutiveRun: number | null;
+  positionLimits: { min: number; max: number }[];
+  setPositionLimitField: (index: number, field: "min" | "max", value: number) => void;
+  setPositionLimits: (v: { min: number; max: number }[]) => void;
+  hasPositionLimits: boolean;
   selectedGroup9_45Keys: Set<string>;
   toggleGroup9_45Key: (key: string) => void;
   runAnalysis: () => void;
@@ -216,6 +222,17 @@ type Scope = {
         }
       >;
     };
+    positionFrequency?: {
+      totalRounds: number;
+      positions: {
+        position: number;
+        theoryMin: number;
+        theoryMax: number;
+        observedMin: number;
+        observedMax: number;
+        entries: { num: number; count: number; pct: number }[];
+      }[];
+    };
     updatedAt: string;
   } | null;
   analysisLoading: boolean;
@@ -229,7 +246,7 @@ type Scope = {
   handleGroupCountMinChange: (groupKey: number, value: number) => void;
   handleGroupCountMaxChange: (groupKey: number, value: number) => void;
   handleToggleGroupEnabled: (groupKey: number) => void;
-  TABS: { id: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound"; label: string }[];
+  TABS: { id: "number" | "position" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound"; label: string }[];
   mustInclude: number[];
   mustExclude: number[];
   atLeastOne: number[];
@@ -245,7 +262,8 @@ type Scope = {
   setSumMin: (v: number | null) => void;
   setSumMax: (v: number | null) => void;
   setMaxConsecutivePairs: (v: number | null) => void;
-  setActiveTab: (v: "number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound") => void;
+  setMaxConsecutiveRun: (v: number | null) => void;
+  setActiveTab: (v: "number" | "position" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound") => void;
   selectedOddEvenKeys: Set<string>;
   toggleOddEvenKey: (key: string) => void;
   fetchExclusionData: () => void;
@@ -305,6 +323,16 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyData, setHistoryData] = useState<{ round: number; games: number[][] }[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  /** 자리별 핸들 드래그: which=min(위) | max(아래) */
+  const [positionDrag, setPositionDrag] = useState<{
+    posIdx: number;
+    which: "min" | "max";
+  } | null>(null);
+  useEffect(() => {
+    const onUp = () => setPositionDrag(null);
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, []);
 
   const lottoNumBg = (n: number) =>
     n <= 9 ? "bg-yellow-500" :
@@ -1038,6 +1066,226 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                   })()}
                 </div>
               )}
+              {s.activeTab === "position" && (() => {
+                const pf = s.analysis?.positionFrequency;
+                const byPos = [0, 1, 2, 3, 4, 5].map((pi) => {
+                  const map = new Map<number, { count: number; pct: number }>();
+                  for (const e of pf?.positions?.[pi]?.entries ?? []) {
+                    map.set(e.num, { count: e.count, pct: e.pct });
+                  }
+                  return map;
+                });
+                let maxCount = 1;
+                for (const pos of pf?.positions ?? []) {
+                  for (const e of pos.entries) maxCount = Math.max(maxCount, e.count);
+                }
+
+                const theoryOf = (pi: number) => ({ min: pi + 1, max: 40 + pi });
+                const limOf = (pi: number) => {
+                  const lim = s.positionLimits[pi];
+                  const t = theoryOf(pi);
+                  return lim ?? t;
+                };
+                const isFull = (pi: number) => {
+                  const lim = limOf(pi);
+                  const t = theoryOf(pi);
+                  return lim.min === t.min && lim.max === t.max;
+                };
+
+                /** 왼쪽(min)·오른쪽(max) 핸들 드래그. 교차 불가. */
+                const onHandleDown = (
+                  posIdx: number,
+                  which: "min" | "max",
+                  e: React.MouseEvent
+                ) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setPositionDrag({ posIdx, which });
+                };
+
+                const onCellEnter = (posIdx: number, num: number) => {
+                  if (!positionDrag || positionDrag.posIdx !== posIdx) return;
+                  const t = theoryOf(posIdx);
+                  if (num < t.min || num > t.max) return;
+                  const lim = limOf(posIdx);
+                  // min===max일 때: 왼쪽이면 min, 오른쪽이면 max
+                  if (lim.min === lim.max) {
+                    if (num >= lim.min) {
+                      if (num !== lim.max) s.setPositionLimitField(posIdx, "max", num);
+                    } else if (num !== lim.min) {
+                      s.setPositionLimitField(posIdx, "min", num);
+                    }
+                    return;
+                  }
+                  if (positionDrag.which === "min") {
+                    const v = Math.min(num, lim.max);
+                    if (v !== lim.min) s.setPositionLimitField(posIdx, "min", v);
+                  } else {
+                    const v = Math.max(num, lim.min);
+                    if (v !== lim.max) s.setPositionLimitField(posIdx, "max", v);
+                  }
+                };
+
+                /** 열 c(0~14): 1+c, 16+c, 31+c */
+                const colNums = (c: number): number[] => [c + 1, c + 16, c + 31];
+
+                const cellBg = (pi: number, num: number) => {
+                  const t = theoryOf(pi);
+                  if (num < t.min || num > t.max) return "rgba(2,6,23,0.55)";
+                  const cell = byPos[pi]?.get(num);
+                  if (!cell || cell.count <= 0) return "rgba(30,41,59,0.85)";
+                  const intensity = cell.count / maxCount;
+                  return `rgba(245,158,11,${(0.12 + 0.72 * intensity).toFixed(3)})`;
+                };
+
+                const stackNum = (pi: number, num: number, colStack: number[]) => {
+                  const t = theoryOf(pi);
+                  const valid = num >= t.min && num <= t.max;
+                  const cell = byPos[pi]?.get(num);
+                  const lim = limOf(pi);
+                  const inRange = num >= lim.min && num <= lim.max;
+                  const isMin = num === lim.min;
+                  const isMax = num === lim.max;
+                  const isHandle = isMin || isMax;
+                  const full = isFull(pi);
+
+                  // 같은 열 세로 스택에서 연속 선택 시 맞닿는 가로선 한 줄만
+                  const idx = colStack.indexOf(num);
+                  const above = idx > 0 ? colStack[idx - 1]! : null;
+                  const below = idx >= 0 && idx < colStack.length - 1 ? colStack[idx + 1]! : null;
+                  const aboveIn =
+                    above != null &&
+                    above >= t.min &&
+                    above <= t.max &&
+                    above >= lim.min &&
+                    above <= lim.max;
+                  const belowIn =
+                    below != null &&
+                    below >= t.min &&
+                    below <= t.max &&
+                    below >= lim.min &&
+                    below <= lim.max;
+                  const showTop = inRange && !aboveIn;
+                  const showBottom = inRange && !belowIn;
+
+                  if (!valid) {
+                    return (
+                      <div
+                        key={num}
+                        className="flex flex-col items-center justify-center h-[2.15rem] opacity-30 box-border"
+                        style={{
+                          backgroundColor: "rgba(2,6,23,0.55)",
+                          border: "2px solid transparent",
+                        }}
+                      />
+                    );
+                  }
+
+                  const edge = (on: boolean) =>
+                    on ? "2px solid rgb(56,189,248)" : "2px solid transparent";
+                  const style: React.CSSProperties = {
+                    backgroundColor: cellBg(pi, num),
+                    boxSizing: "border-box",
+                    borderTop: edge(!full && inRange && showTop),
+                    borderBottom: edge(!full && inRange && showBottom),
+                    borderLeft: edge(!full && inRange && isMin),
+                    borderRight: edge(!full && inRange && isMax),
+                  };
+
+                  return (
+                    <div
+                      key={num}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        if (isMin && isMax) onHandleDown(pi, "max", e);
+                        else if (isMin) onHandleDown(pi, "min", e);
+                        else if (isMax) onHandleDown(pi, "max", e);
+                      }}
+                      onMouseEnter={() => onCellEnter(pi, num)}
+                      title={
+                        isMin
+                          ? `${pi + 1}번째 왼쪽 끝 ${lim.min} — 좌우 드래그`
+                          : isMax
+                            ? `${pi + 1}번째 오른쪽 끝 ${lim.max} — 좌우 드래그`
+                            : cell
+                              ? `${pi + 1}번째 · ${num}번 ${cell.count}회 (${cell.pct}%)`
+                              : `${pi + 1}번째 · ${num}번`
+                      }
+                      className={`flex flex-col items-center justify-center gap-0.5 h-[2.15rem] leading-none select-none ${
+                        isHandle ? "cursor-ew-resize" : "cursor-default"
+                      }`}
+                      style={style}
+                    >
+                      {cell && cell.count > 0 ? (
+                        <>
+                          <span className="text-white font-semibold text-xs">
+                            {cell.count}
+                          </span>
+                          <span className="text-white/90 text-[10px]">
+                            {cell.pct.toFixed(1)}%
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-slate-600 text-xs">·</span>
+                      )}
+                    </div>
+                  );
+                };
+
+                return (
+                  <div className="w-full select-none overflow-x-auto rounded border border-slate-600/60 [scrollbar-width:thin]">
+                    <table
+                      className="w-full text-xs font-mono tabular-nums border-separate"
+                      style={{ borderSpacing: "2px 1px" }}
+                    >
+                      <thead className="bg-slate-800">
+                        {[0, 1, 2].map((band) => (
+                          <tr key={band} className="text-slate-200 leading-none">
+                            {band === 0 ? (
+                              <th
+                                rowSpan={3}
+                                className="sticky left-0 z-10 bg-slate-800 py-0 px-1.5 text-left font-semibold align-middle whitespace-nowrap text-[11px]"
+                              >
+                                자리
+                              </th>
+                            ) : null}
+                            {Array.from({ length: 15 }, (_, c) => (
+                              <th
+                                key={`${band}-${c}`}
+                                className="py-0 px-0.5 text-center font-semibold bg-slate-800 min-w-[2.4rem] text-[11px] h-3.5 leading-none"
+                              >
+                                {band * 15 + c + 1}
+                              </th>
+                            ))}
+                          </tr>
+                        ))}
+                      </thead>
+                      <tbody>
+                        {[0, 1, 2, 3, 4, 5].map((pi) => (
+                          <tr key={pi}>
+                            <td className="sticky left-0 z-10 bg-slate-900 py-1.5 px-2 text-left font-bold text-amber-300 whitespace-nowrap align-middle border-b-2 border-slate-500/80">
+                              {pi + 1}번째
+                            </td>
+                            {Array.from({ length: 15 }, (_, c) => {
+                              const nums = colNums(c);
+                              return (
+                                <td
+                                  key={c}
+                                  className="p-0 align-top min-w-[2.4rem] border-b-2 border-slate-500/80"
+                                >
+                                  <div className="flex flex-col gap-0.5">
+                                    {nums.map((num) => stackNum(pi, num, nums))}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
               {s.activeTab === "group" && (
                 <div>
                   <GroupCountSelector
@@ -1251,8 +1499,26 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
                         </option>
                       ))}
                     </select>
-                    <p className="text-slate-500 text-xs mt-2">연속이란 번호 쌍 (예: 3,4 또는 10,11)의 최대 개수를 제한합니다.</p>
+                    <p className="text-slate-500 text-xs mt-2">
+                      이어지는 두 번호 쌍의 개수 제한 (예: 3,4 또는 10,11이 1쌍). 1,2,3은 2쌍으로 셉니다.
+                    </p>
                   </div>
+                  <label className="flex items-start gap-3 cursor-pointer rounded-lg border border-slate-600/50 bg-slate-800/40 px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={s.maxConsecutiveRun != null}
+                      onChange={(e) => s.setMaxConsecutiveRun(e.target.checked ? 2 : null)}
+                      className="mt-0.5 rounded border-slate-500 accent-amber-500"
+                    />
+                    <span>
+                      <span className="block text-slate-200 text-sm font-medium">
+                        3개 이상 연속 금지
+                      </span>
+                      <span className="block text-slate-500 text-xs mt-1">
+                        1,2는 허용하고 1,2,3 / 1,2,3,4 등 3개 이상 이어지는 조합만 제외합니다.
+                      </span>
+                    </span>
+                  </label>
                   <p className="text-slate-500 text-xs text-center">번호를 뽑은 뒤 설정은 계정 DB에 저장됩니다.</p>
                 </div>
               )}

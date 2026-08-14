@@ -72,6 +72,23 @@ function getConsecutivePairs(nums: number[]): number {
   return pairs;
 }
 
+/** 연속 구간 최장 길이 (예: 1,2,3 → 3 / 5,6·10,11 → 2) */
+function getMaxConsecutiveRun(nums: number[]): number {
+  const arr = [...nums].sort((a, b) => a - b);
+  if (arr.length === 0) return 0;
+  let maxRun = 1;
+  let run = 1;
+  for (let i = 1; i < arr.length; i++) {
+    if (arr[i] === arr[i - 1] + 1) {
+      run += 1;
+      maxRun = Math.max(maxRun, run);
+    } else {
+      run = 1;
+    }
+  }
+  return maxRun;
+}
+
 function countGroup9(nums: number[]): number {
   return nums.filter((n) => n >= 1 && n <= 9).length;
 }
@@ -85,7 +102,9 @@ function meetsPatternConstraints(
   sumMax: number | null,
   maxConsecutivePairs: number | null,
   allowedGroup9_45Keys: Set<string> | null,
-  allowedOddEvenKeys: Set<string> | null
+  allowedOddEvenKeys: Set<string> | null,
+  maxConsecutiveRun: number | null = null,
+  positionLimits: PositionLimit[] | null = null
 ): boolean {
   if (nums.length !== PICK_COUNT) return false;
   if (allowedGroup9_45Keys != null && allowedGroup9_45Keys.size > 0) {
@@ -103,6 +122,20 @@ function meetsPatternConstraints(
   if (effSumMin != null && sum < effSumMin) return false;
   if (effSumMax != null && sum > effSumMax) return false;
   if (maxConsecutivePairs != null && getConsecutivePairs(nums) > maxConsecutivePairs) return false;
+  // maxConsecutiveRun: 연속 구간의 최대 허용 길이 (2 → 1,2 가능 / 1,2,3 불가)
+  if (maxConsecutiveRun != null && getMaxConsecutiveRun(nums) > maxConsecutiveRun) return false;
+  // 정렬 후 자리별 min~max (1번째=최소 번호 … 6번째=최대 번호)
+  if (positionLimits != null && positionLimits.length === 6) {
+    const sorted = [...nums].sort((a, b) => a - b);
+    for (let i = 0; i < 6; i++) {
+      const lim = positionLimits[i];
+      if (!lim) continue;
+      // 이론 전체 범위면 필터 스킵
+      if (isFullTheoryRange(i, lim)) continue;
+      const n = sorted[i]!;
+      if (n < lim.min || n > lim.max) return false;
+    }
+  }
   return true;
 }
 
@@ -162,6 +195,26 @@ function prevNumberTooltip(
   return `${n}번\n${overall}\n${whenInGroup}`;
 }
 
+type PositionFrequencyEntry = {
+  num: number;
+  count: number;
+  pct: number;
+};
+
+type PositionFrequencyPos = {
+  position: number;
+  theoryMin: number;
+  theoryMax: number;
+  observedMin: number;
+  observedMax: number;
+  entries: PositionFrequencyEntry[];
+};
+
+type PositionFrequencyAnalysis = {
+  totalRounds: number;
+  positions: PositionFrequencyPos[];
+};
+
 type AnalysisResult = {
   totalRounds: number;
   hot: number[];
@@ -180,8 +233,27 @@ type AnalysisResult = {
   };
   /** 직전 회차 구간(Prev1~5) 분류 및 당첨 출현 집계 */
   prevBucketAnalysis?: PrevBucketAnalysis;
+  /** 정렬 6자리별 번호 출현 횟수·비율 */
+  positionFrequency?: PositionFrequencyAnalysis;
   updatedAt: string;
 };
+
+/** 자리별 허용 최소~최대 (항상 두 값 설정, 이론 범위 기본) */
+type PositionLimit = { min: number; max: number };
+
+function theoryPositionRange(index: number): { min: number; max: number } {
+  return { min: index + 1, max: 40 + index };
+}
+
+function defaultPositionLimits(): PositionLimit[] {
+  return Array.from({ length: 6 }, (_, i) => theoryPositionRange(i));
+}
+
+/** 이론 전체 범위와 같으면 ‘제한 없음’으로 취급 (저장·표시용) */
+function isFullTheoryRange(index: number, lim: PositionLimit): boolean {
+  const t = theoryPositionRange(index);
+  return lim.min === t.min && lim.max === t.max;
+}
 
 const PREV_BUCKET_LABELS: Record<
   PrevBucketKey,
@@ -798,6 +870,128 @@ function AnalysisResultView({
       {analysis.prevBucketAnalysis && analysis.prevBucketAnalysis.analyzedRounds > 0 && (
         <PrevBucketAnalysisBlock data={analysis.prevBucketAnalysis} />
       )}
+
+      {analysis.positionFrequency && analysis.positionFrequency.totalRounds > 0 && (
+        <PositionFrequencyBlock data={analysis.positionFrequency} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * 열 15개: 헤더 3줄 1~15 / 16~30 / 31~45.
+ * 각 자리 행 셀: 번호마다 횟수·% (세로 3단)
+ */
+function PositionFrequencyBlock({ data }: { data: PositionFrequencyAnalysis }) {
+  const total = data.totalRounds;
+  const byPos = data.positions.map((pos) => {
+    const map = new Map<number, { count: number; pct: number }>();
+    for (const e of pos.entries) map.set(e.num, { count: e.count, pct: e.pct });
+    return map;
+  });
+  let maxCount = 1;
+  for (const pos of data.positions) {
+    for (const e of pos.entries) maxCount = Math.max(maxCount, e.count);
+  }
+
+  /** 열 c(0~14): [1+c, 16+c, 31+c] */
+  const colNums = (c: number): number[] => [c + 1, c + 16, c + 31];
+
+  const cellBg = (pi: number, num: number) => {
+    const theoryMin = pi + 1;
+    const theoryMax = 40 + pi;
+    if (num < theoryMin || num > theoryMax) return "rgba(2,6,23,0.55)";
+    const cell = byPos[pi]?.get(num);
+    if (!cell || cell.count <= 0) return "rgba(15,23,42,0.9)";
+    const t = cell.count / maxCount;
+    return `rgba(245,158,11,${(0.12 + 0.72 * t).toFixed(3)})`;
+  };
+
+  const stackMetrics = (pi: number, num: number) => {
+    const theoryMin = pi + 1;
+    const theoryMax = 40 + pi;
+    if (num < theoryMin || num > theoryMax) {
+      return (
+        <div
+          key={num}
+          className="flex flex-col items-center justify-center py-1 min-h-[2.1rem] opacity-30"
+          style={{ backgroundColor: "rgba(2,6,23,0.55)" }}
+        />
+      );
+    }
+    const d = byPos[pi]?.get(num);
+    return (
+      <div
+        key={num}
+        title={d ? `${pi + 1}번째 · ${num}번: ${d.count}회 (${d.pct}%)` : `${num}번`}
+        className="flex flex-col items-center justify-center gap-0.5 py-1 min-h-[2.1rem] leading-none"
+        style={{ backgroundColor: cellBg(pi, num) }}
+      >
+        {d && d.count > 0 ? (
+          <>
+            <span className="text-white font-semibold text-xs">{d.count}</span>
+            <span className="text-white/90 text-[10px]">{d.pct.toFixed(1)}%</span>
+          </>
+        ) : (
+          <span className="text-slate-600 text-xs">·</span>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="rounded-lg bg-slate-700/40 p-2 space-y-1.5">
+      <p className="text-slate-200 text-sm font-semibold px-1">
+        자리별 출현 · {total}회 · 번호 1~15 / 16~30 / 31~45 · 셀: 횟수·%
+      </p>
+      <div className="overflow-x-auto rounded border border-slate-600/60 [scrollbar-width:thin]">
+        <table
+          className="w-full text-xs font-mono tabular-nums border-separate"
+          style={{ borderSpacing: "2px 1px" }}
+        >
+          <thead className="bg-slate-800">
+            {[0, 1, 2].map((band) => (
+              <tr key={band} className="text-slate-200 leading-none">
+                {band === 0 ? (
+                  <th
+                    rowSpan={3}
+                    className="sticky left-0 z-10 bg-slate-800 py-0 px-1.5 text-left font-semibold align-middle whitespace-nowrap text-[11px]"
+                  >
+                    자리
+                  </th>
+                ) : null}
+                {Array.from({ length: 15 }, (_, c) => (
+                  <th
+                    key={`${band}-${c}`}
+                    className="py-0 px-0.5 text-center font-semibold bg-slate-800 min-w-[2.4rem] text-[11px] h-3.5 leading-none"
+                  >
+                    {band * 15 + c + 1}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {[0, 1, 2, 3, 4, 5].map((pi) => (
+              <tr key={pi}>
+                <td className="sticky left-0 z-10 bg-slate-900 py-1.5 px-2 text-left font-bold text-amber-300 whitespace-nowrap align-middle border-b-2 border-slate-500/80">
+                  {pi + 1}번째
+                </td>
+                {Array.from({ length: 15 }, (_, c) => (
+                  <td
+                    key={c}
+                    className="p-0 align-top min-w-[2.4rem] border-b-2 border-slate-500/80"
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      {colNums(c).map((num) => stackMetrics(pi, num))}
+                    </div>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1217,10 +1411,14 @@ export function LottoPageBody() {
   const [groupEnabled, setGroupEnabled] = useState<GroupEnabled>(getDefaultGroupEnabled);
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedMessage, setSeedMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<"number" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound">("number");
+  const [activeTab, setActiveTab] = useState<"number" | "position" | "group" | "group9_45" | "sum" | "oddEven" | "consecutive" | "repeatAppear" | "prevRound">("number");
   const [sumMin, setSumMin] = useState<number | null>(null);
   const [sumMax, setSumMax] = useState<number | null>(null);
   const [maxConsecutivePairs, setMaxConsecutivePairs] = useState<number | null>(null);
+  /** 연속 최대 2개 허용(3개 이상 금지)일 때 2, null=제한 없음 */
+  const [maxConsecutiveRun, setMaxConsecutiveRun] = useState<number | null>(null);
+  /** 정렬 6자리별 허용 min~max */
+  const [positionLimits, setPositionLimits] = useState<PositionLimit[]>(() => defaultPositionLimits());
   const [selectedGroup9_45Keys, setSelectedGroup9_45Keys] = useState<Set<string>>(new Set());
   const [selectedOddEvenKeys, setSelectedOddEvenKeys] = useState<Set<string>>(new Set());
   const [savedRounds, setSavedRounds] = useState<{
@@ -1478,6 +1676,10 @@ export function LottoPageBody() {
           if (typeof ps.sumMin === "number" && ps.sumMin >= SUM_RANGE.min && ps.sumMin <= SUM_RANGE.max) setSumMin(ps.sumMin);
           if (typeof ps.sumMax === "number" && ps.sumMax >= SUM_RANGE.min && ps.sumMax <= SUM_RANGE.max) setSumMax(ps.sumMax);
           if (typeof ps.maxConsecutivePairs === "number" && ps.maxConsecutivePairs >= 0 && ps.maxConsecutivePairs <= 5) setMaxConsecutivePairs(ps.maxConsecutivePairs);
+          // 2 = 연속 최대 2개(3개 이상 금지). 구버전 3~6 값도 동일하게 3개 이상 금지로 취급
+          if (typeof ps.maxConsecutiveRun === "number" && ps.maxConsecutiveRun >= 2 && ps.maxConsecutiveRun <= 6) {
+            setMaxConsecutiveRun(2);
+          }
           if (Array.isArray(ps.group9_45Keys)) setSelectedGroup9_45Keys(new Set(ps.group9_45Keys));
           if (Array.isArray(ps.oddEvenKeys)) setSelectedOddEvenKeys(new Set(ps.oddEvenKeys));
           if (Array.isArray(ps.prevRoundKeys) && ps.prevRoundKeys.length > 0) {
@@ -1486,6 +1688,34 @@ export function LottoPageBody() {
               setSelectedPrevRounds(rounds);
               loadAllRounds();
             }
+          }
+          if (Array.isArray(ps.positionLimits) && ps.positionLimits.length === 6) {
+            const next = defaultPositionLimits();
+            for (let i = 0; i < 6; i++) {
+              const raw = ps.positionLimits[i];
+              const t = theoryPositionRange(i);
+              if (!raw || typeof raw !== "object") {
+                next[i] = { ...t };
+                continue;
+              }
+              let min =
+                typeof raw.min === "number" && !Number.isNaN(raw.min)
+                  ? Math.floor(raw.min)
+                  : t.min;
+              let max =
+                typeof raw.max === "number" && !Number.isNaN(raw.max)
+                  ? Math.floor(raw.max)
+                  : t.max;
+              min = Math.max(t.min, Math.min(t.max, min));
+              max = Math.max(t.min, Math.min(t.max, max));
+              if (min > max) {
+                const swap = min;
+                min = max;
+                max = swap;
+              }
+              next[i] = { min, max };
+            }
+            setPositionLimits(next);
           }
         }
       })
@@ -1497,6 +1727,7 @@ export function LottoPageBody() {
 
   const TABS = [
     { id: "number" as const, label: "번호 선택 (포함/제외 또는 사용)" },
+    { id: "position" as const, label: "자리별 번호" },
     { id: "group" as const, label: "그룹별 개수" },
     { id: "group9_45" as const, label: "9·45 조합" },
     { id: "sum" as const, label: "합계" },
@@ -1505,6 +1736,31 @@ export function LottoPageBody() {
     { id: "repeatAppear" as const, label: "연속출현" },
     { id: "prevRound" as const, label: "이전 회차" },
   ];
+
+  const hasPositionLimits = positionLimits.some((p, i) => !isFullTheoryRange(i, p));
+
+  const setPositionLimitField = useCallback(
+    (index: number, field: "min" | "max", value: number) => {
+      setPositionLimits((prev) => {
+        const next = prev.map((p) => ({ ...p }));
+        const t = theoryPositionRange(index);
+        const cur = { ...next[index]! };
+        let v = Math.max(t.min, Math.min(t.max, Math.floor(value)));
+        if (field === "min") {
+          // 위 핸들(최소)은 아래 핸들(최대)을 넘을 수 없음
+          v = Math.min(v, cur.max);
+          cur.min = v;
+        } else {
+          // 아래 핸들(최대)은 위 핸들(최소)을 넘을 수 없음
+          v = Math.max(v, cur.min);
+          cur.max = v;
+        }
+        next[index] = cur;
+        return next;
+      });
+    },
+    []
+  );
 
   const toggleGroup9_45Key = useCallback((key: string) => {
     setSelectedGroup9_45Keys((prev) => {
@@ -1687,7 +1943,13 @@ export function LottoPageBody() {
     const allowedGroup9_45 = selectedGroup9_45Keys.size > 0 ? selectedGroup9_45Keys : null;
     const allowedOddEven = selectedOddEvenKeys.size > 0 ? selectedOddEvenKeys : null;
     const hasPatternConstraint =
-      sumMin != null || sumMax != null || maxConsecutivePairs != null || allowedGroup9_45 != null || allowedOddEven != null;
+      sumMin != null ||
+      sumMax != null ||
+      maxConsecutivePairs != null ||
+      maxConsecutiveRun != null ||
+      allowedGroup9_45 != null ||
+      allowedOddEven != null ||
+      hasPositionLimits;
     const maxRetry = hasPatternConstraint ? 200 : 1;
     setIsDrawing(true);
     setGames([]);
@@ -1708,7 +1970,19 @@ export function LottoPageBody() {
             ? drawByGroupCounts(groupCountRanges, groupEnabled, mustInclude, mustExclude, prevRoundExclude)
             : drawLottoNumbers(mustInclude, mustExclude, atLeastOne, prevRoundExclude);
           if (result.length !== PICK_COUNT) continue;
-          if (!meetsPatternConstraints(result, sumMin, sumMax, maxConsecutivePairs, allowedGroup9_45, allowedOddEven)) continue;
+          if (
+            !meetsPatternConstraints(
+              result,
+              sumMin,
+              sumMax,
+              maxConsecutivePairs,
+              allowedGroup9_45,
+              allowedOddEven,
+              maxConsecutiveRun,
+              hasPositionLimits ? positionLimits : null
+            )
+          )
+            continue;
           const key = toSetKey(result);
           if (forbiddenSetKeys.has(key) || alreadyDrawnKeysInBatch.has(key)) continue;
           break;
@@ -1731,6 +2005,8 @@ export function LottoPageBody() {
             sumMin,
             sumMax,
             maxConsecutivePairs,
+            maxConsecutiveRun,
+            positionLimits,
             group9_45Keys: Array.from(selectedGroup9_45Keys),
             oddEvenKeys: Array.from(selectedOddEvenKeys),
             prevRoundKeys: Array.from(selectedPrevRounds),
@@ -1750,6 +2026,9 @@ export function LottoPageBody() {
     sumMin,
     sumMax,
     maxConsecutivePairs,
+    maxConsecutiveRun,
+    hasPositionLimits,
+    positionLimits,
     selectedGroup9_45Keys,
     selectedOddEvenKeys,
     exclusionWinningSetKeys,
@@ -1764,13 +2043,14 @@ export function LottoPageBody() {
       setActiveTab(tab);
       if (tab === "prevRound" || tab === "repeatAppear" || tab === "sum" || tab === "oddEven") loadAllRounds();
     }, sumMin, sumMax,
-    maxConsecutivePairs, selectedGroup9_45Keys, toggleGroup9_45Key, runAnalysis, savedRounds, savedRoundsLoading, allRounds, allRoundsLoading, mainTab, setMainTab, analysis, analysisLoading,
+    maxConsecutivePairs, maxConsecutiveRun, positionLimits, setPositionLimitField, setPositionLimits, hasPositionLimits,
+    selectedGroup9_45Keys, toggleGroup9_45Key, runAnalysis, savedRounds, savedRoundsLoading, allRounds, allRoundsLoading, mainTab, setMainTab, analysis, analysisLoading,
     saveDrawnLoading, saveDrawnMessage, fetchDbScreenData, handleDraw, canDraw, nextRound: resolvedNextRound,
     savedDrawnList, setSavedDrawnList, loadSavedDrawn,
     handleCategoryChange, handleNumberClick, handleGroupCountMinChange, handleGroupCountMaxChange, handleToggleGroupEnabled,
     TABS, mustInclude, mustExclude, atLeastOne, useGroupCountMode, poolSize,
     setSaveDrawnMessage, setSaveDrawnLoading, setSavedRounds, setAnalysis, setAnalysisLoading, setSeedMessage, setSeedLoading,
-    setSumMin, setSumMax, setMaxConsecutivePairs,
+    setSumMin, setSumMax, setMaxConsecutivePairs, setMaxConsecutiveRun,
     selectedOddEvenKeys, toggleOddEvenKey,
     fetchExclusionData,
     prevRoundsOpen, setPrevRoundsOpen, selectedPrevRounds, setSelectedPrevRounds, prevRoundExclude,
