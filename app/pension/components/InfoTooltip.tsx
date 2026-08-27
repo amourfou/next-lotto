@@ -1,5 +1,6 @@
 'use client';
-import { Info } from 'lucide-react';
+
+import { useEffect, useId, useRef, useState } from 'react';
 
 interface InfoTooltipProps {
   text: string;
@@ -10,37 +11,79 @@ interface InfoTooltipProps {
 }
 
 export default function InfoTooltip({ text, width = 'w-64', direction = 'top' }: InfoTooltipProps) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const tooltipId = useId();
   const isTop = direction === 'top';
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      const root = rootRef.current;
+      if (root && !root.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
   return (
-    <span className="relative group inline-flex items-center ml-1.5 cursor-help align-middle">
-      <Info
-        size={14}
-        className="text-gray-400 group-hover:text-blue-500 transition-colors duration-150 shrink-0"
-      />
-      {/* 툴팁 박스 */}
-      <span
+    <span ref={rootRef} className="relative inline-flex items-center ml-1 align-middle">
+      <button
+        type="button"
+        aria-label="설명 보기"
+        aria-expanded={open}
+        aria-controls={tooltipId}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
         className={[
-          'absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none',
-          isTop ? 'bottom-full mb-2.5' : 'top-full mt-2.5',
-          width,
-          'bg-gray-900 text-white text-[11px] leading-relaxed',
-          'rounded-xl px-3 py-2.5 shadow-2xl',
-          'opacity-0 group-hover:opacity-100',
-          'transition-opacity duration-200',
-          'whitespace-normal font-normal',
+          'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold leading-none transition-colors',
+          open
+            ? 'border-blue-500 bg-blue-500 text-white'
+            : 'border-gray-400 bg-white text-gray-500 hover:border-blue-400 hover:text-blue-600',
         ].join(' ')}
       >
-        {text}
-        {/* 화살표 */}
+        ?
+      </button>
+      {open && (
         <span
+          id={tooltipId}
+          role="tooltip"
           className={[
-            'absolute left-1/2 -translate-x-1/2 border-[6px] border-transparent',
-            isTop
-              ? 'top-full border-t-gray-900'
-              : 'bottom-full border-b-gray-900',
+            'absolute left-1/2 -translate-x-1/2 z-50',
+            isTop ? 'bottom-full mb-2.5' : 'top-full mt-2.5',
+            width,
+            'bg-gray-900 text-white text-[11px] leading-relaxed',
+            'rounded-xl px-3 py-2.5 shadow-2xl',
+            'whitespace-normal font-normal normal-case tracking-normal',
           ].join(' ')}
-        />
-      </span>
+        >
+          {text}
+          <span
+            className={[
+              'absolute left-1/2 -translate-x-1/2 border-[6px] border-transparent',
+              isTop
+                ? 'top-full border-t-gray-900'
+                : 'bottom-full border-b-gray-900',
+            ].join(' ')}
+          />
+        </span>
+      )}
     </span>
   );
 }

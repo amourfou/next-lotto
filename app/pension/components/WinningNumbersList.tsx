@@ -41,12 +41,21 @@ function getSingleDuplicatePattern(numbers: number[]): string | null {
 
 interface WinningNumbersListProps {
   lotteryData: LotteryData[];
+  /** 강조할 숫자(0~9). 제외할 숫자 선택 등과 연동 */
+  highlightedDigits?: number[];
 }
 
-export default function WinningNumbersList({ lotteryData }: WinningNumbersListProps) {
+export default function WinningNumbersList({
+  lotteryData,
+  highlightedDigits = [],
+}: WinningNumbersListProps) {
   const sorted = useMemo(
     () => [...lotteryData].sort((a, b) => b.order - a.order),
     [lotteryData]
+  );
+  const highlightSet = useMemo(
+    () => new Set(highlightedDigits.filter((d) => d >= 0 && d <= 9)),
+    [highlightedDigits]
   );
   const { minOrder, maxOrder, rowCount } = getLotteryDataSummary(lotteryData);
 
@@ -77,19 +86,35 @@ export default function WinningNumbersList({ lotteryData }: WinningNumbersListPr
             {sorted.map((row) => {
               const sum = getDigitSum(row.numbers);
               const dupPattern = getSingleDuplicatePattern(row.numbers);
+              const rowHasHighlight = row.numbers.some((n) => highlightSet.has(n));
               return (
-              <tr key={row.order} className="border-t border-gray-100 hover:bg-indigo-50/50">
+              <tr
+                key={row.order}
+                className={`border-t border-gray-100 hover:bg-indigo-50/50 ${
+                  rowHasHighlight ? 'bg-amber-50/70' : ''
+                }`}
+              >
                 <td className="py-1.5 px-2 font-semibold text-gray-700 tabular-nums">{row.order}</td>
                 <td className="py-1 px-1">
                   <div className="flex justify-center gap-0.5 flex-wrap">
-                    {row.numbers.map((num, i) => (
-                      <span
-                        key={i}
-                        className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white ${digitBg(num)}`}
-                      >
-                        {num}
-                      </span>
-                    ))}
+                    {row.numbers.map((num, i) => {
+                      const isHighlighted = highlightSet.has(num);
+                      return (
+                        <span
+                          key={i}
+                          className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white transition-transform ${digitBg(num)} ${
+                            isHighlighted
+                              ? 'ring-2 ring-amber-400 ring-offset-1 scale-110 shadow-md z-[1]'
+                              : highlightSet.size > 0
+                                ? 'opacity-40'
+                                : ''
+                          }`}
+                          title={isHighlighted ? `제외 선택 숫자 ${num}` : undefined}
+                        >
+                          {num}
+                        </span>
+                      );
+                    })}
                   </div>
                 </td>
                 <td className="py-1.5 px-1 text-center font-semibold text-gray-800 tabular-nums">

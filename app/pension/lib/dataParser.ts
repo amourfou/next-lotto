@@ -511,6 +511,67 @@ export function analyzeDuplicatePositionPatterns(lotteryData: LotteryData[]): Du
 }
 
 /**
+ * 숫자별 회차 연속 출현 통계 (자리·개수 무관, 해당 회차에 한 번이라도 나오면 출현)
+ */
+export interface DigitConsecutiveAppearanceStat {
+  digit: number;
+  /** 연속 출현 구간 중 최대 회차 수 */
+  maxStreak: number;
+  /** 연속 출현 구간 길이의 평균 */
+  avgStreak: number;
+  /** 최근(최신 회차부터) 연속 출현 회차 수. 최신 회차에 없으면 0 */
+  recentStreak: number;
+  /** 연속 출현 구간(스트릭) 개수 */
+  streakCount: number;
+  /** 출현한 회차 수 (자리·개수 무관) */
+  appearanceRounds: number;
+}
+
+/**
+ * 각 숫자(0~9)의 회차 연속 출현: 최대·평균·최근 연속 출현 횟수
+ * - 자리/개수와 무관하게, 그 회차 번호에 해당 숫자가 1회 이상 포함되면 출현으로 본다.
+ * - 데이터는 회차(order) 오름차순으로 나열한 뒤, 연속된 출현 구간을 스트릭으로 집계한다.
+ * - recentStreak는 최신 회차부터 역순으로 이어진 현재 연속 출현 길이.
+ */
+export function analyzeDigitConsecutiveAppearance(
+  lotteryData: LotteryData[]
+): DigitConsecutiveAppearanceStat[] {
+  const sorted = [...lotteryData].sort((a, b) => a.order - b.order);
+
+  return Array.from({ length: 10 }, (_, digit) => {
+    const streaks: number[] = [];
+    let run = 0;
+
+    for (const data of sorted) {
+      const present = data.numbers.some((n) => n === digit);
+      if (present) {
+        run++;
+      } else if (run > 0) {
+        streaks.push(run);
+        run = 0;
+      }
+    }
+    // 마지막까지 이어진 출현 구간 = 최근 연속 출현
+    const recentStreak = run;
+    if (run > 0) streaks.push(run);
+
+    const maxStreak = streaks.length > 0 ? Math.max(...streaks) : 0;
+    const appearanceRounds = streaks.reduce((sum, s) => sum + s, 0);
+    const avgStreak =
+      streaks.length > 0 ? appearanceRounds / streaks.length : 0;
+
+    return {
+      digit,
+      maxStreak,
+      avgStreak,
+      recentStreak,
+      streakCount: streaks.length,
+      appearanceRounds,
+    };
+  });
+}
+
+/**
  * 각 자리별 숫자 빈도 분석 결과
  */
 export interface PositionFrequencyAnalysis {

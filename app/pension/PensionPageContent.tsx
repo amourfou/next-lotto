@@ -21,6 +21,8 @@ export function PensionPageContent() {
   const [lotteryData, setLotteryData] = useState<LotteryData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** 예측 옵션「제외할 숫자」→ 당첨번호 리스트 강조 */
+  const [highlightedExcludeDigits, setHighlightedExcludeDigits] = useState<number[]>([]);
 
   const handleDataLoaded = (newNumbers: number[], newLotteryData: LotteryData[]) => {
     setNumbers(newNumbers);
@@ -83,13 +85,20 @@ export function PensionPageContent() {
             <aside className="w-full xl:w-80 shrink-0 space-y-3 sm:space-y-4">
               <DataAdder onDataAdded={handleDataReload} lotteryData={lotteryData} />
               {lotteryData.length > 0 && (
-                <WinningNumbersList lotteryData={lotteryData} />
+                <WinningNumbersList
+                  lotteryData={lotteryData}
+                  highlightedDigits={highlightedExcludeDigits}
+                />
               )}
             </aside>
 
             <div className="flex-1 min-w-0 w-full">
               {lotteryData.length > 0 && (
-                <PredictionGenerator lotteryData={lotteryData} analyzedNumbers={numbers} />
+                <PredictionGenerator
+                  lotteryData={lotteryData}
+                  analyzedNumbers={numbers}
+                  onExcludedDigitsChange={setHighlightedExcludeDigits}
+                />
               )}
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">

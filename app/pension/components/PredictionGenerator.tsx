@@ -1,13 +1,80 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { LotteryData, analyzePositionFrequency, analyzeDigitSum, analyzeDuplicatePatterns, analyzeDuplicatePositionPatterns, analyzeDuplicateFrequency, analyzePreviousRoundComparison, analyzePositionTransition, analyzeFirstDigitComparison } from '../lib/dataParser';
+import { LotteryData, analyzePositionFrequency, analyzeDigitSum, analyzeDuplicatePatterns, analyzeDuplicatePositionPatterns, analyzeDuplicateFrequency, analyzePreviousRoundComparison, analyzePositionTransition, analyzeFirstDigitComparison, analyzeDigitConsecutiveAppearance } from '../lib/dataParser';
 import { Sparkles, RefreshCw, Dice6, TrendingUp, TrendingDown, Save, Trash2, History, X, ChevronDown } from 'lucide-react';
 import InfoTooltip from './InfoTooltip';
+import type { ReactNode } from 'react';
 
 interface PredictionGeneratorProps {
   lotteryData: LotteryData[];
   analyzedNumbers?: number[]; // 현재 분석에 사용된 숫자 배열 (보너스 포함 여부 반영)
+  /** 제외할 숫자 변경 시 (당첨번호 리스트 강조 등) */
+  onExcludedDigitsChange?: (digits: number[]) => void;
+}
+
+/** 숫자 예측 카드 내 접기 섹션 키 */
+type PredictionCollapseKey =
+  | 'resultTransition'
+  | 'resultSum'
+  | 'resultPattern'
+  | 'options'
+  | 'optionsPattern'
+  | 'optionsDupDigit'
+  | 'optionsExclude'
+  | 'optionsFixed'
+  | 'strongSignals'
+  | 'firstDigit';
+
+const PREDICTION_COLLAPSE_STORAGE_KEY = 'pension-prediction-collapsed';
+
+function loadPredictionCollapsed(): Partial<Record<PredictionCollapseKey, boolean>> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(PREDICTION_COLLAPSE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed as Partial<Record<PredictionCollapseKey, boolean>>;
+  } catch {
+    return {};
+  }
+}
+
+function savePredictionCollapsed(map: Partial<Record<PredictionCollapseKey, boolean>>) {
+  try {
+    localStorage.setItem(PREDICTION_COLLAPSE_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // quota / private mode 등은 무시
+  }
+}
+
+/** 섹션 타이틀 클릭으로 접기/펼치기 */
+function CollapseTitle({
+  collapsed,
+  onToggle,
+  children,
+  className = '',
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      className={`inline-flex items-center gap-1 text-left transition-colors hover:text-purple-700 ${className}`}
+    >
+      <ChevronDown
+        size={14}
+        className={`shrink-0 text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`}
+      />
+      {children}
+    </button>
+  );
 }
 
 export interface PredictionOptions {
@@ -31,6 +98,8 @@ export interface PredictionOptions {
    * allowMultipleDuplicateDigits와 상호 배타.
    */
   disallowDuplicateDigits?: boolean;
+  /** 생성 결과에서 제외할 숫자(0~9). 해당 숫자는 어떤 자리에도 나오지 않음 */
+  excludedDigits?: number[];
 }
 
 function getFixedDigit(fixed: (number | null)[] | undefined, pos: number): number | null {
@@ -141,14 +210,39 @@ function hasAnyDuplicateDigits(digits: number[]): boolean {
   return false;
 }
 
-/** 데이터 없을 때 6자리 서로 다른 숫자 랜덤 생성 */
-function randomUniqueDigits(): number[] {
-  const pool = Array.from({ length: 10 }, (_, i) => i);
+/** 제외 숫자 집합 (유효한 0~9만) */
+function buildExcludedSet(excluded?: number[]): Set<number> {
+  const set = new Set<number>();
+  for (const d of excluded ?? []) {
+    if (typeof d === 'number' && d >= 0 && d <= 9) set.add(d);
+  }
+  return set;
+}
+
+/** 허용 숫자 풀 (제외 반영) */
+function allowedDigitPool(excluded: Set<number>): number[] {
+  return Array.from({ length: 10 }, (_, i) => i).filter((d) => !excluded.has(d));
+}
+
+/** 데이터 없을 때 6자리 서로 다른 숫자 랜덤 생성 (제외 숫자 반영) */
+function randomUniqueDigits(excluded: Set<number> = new Set()): number[] {
+  const pool = allowedDigitPool(excluded);
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
-  return pool.slice(0, 6);
+  // 허용 숫자가 6개 미만이면 부족한 자리는 허용 풀에서 순환(중복 불가 시 재사용 불가하므로 허용 풀을 반복)
+  if (pool.length >= 6) return pool.slice(0, 6);
+  const result: number[] = [...pool];
+  while (result.length < 6) {
+    const fallback = allowedDigitPool(excluded);
+    if (fallback.length === 0) {
+      result.push(Math.floor(Math.random() * 10));
+    } else {
+      result.push(fallback[Math.floor(Math.random() * fallback.length)]);
+    }
+  }
+  return result;
 }
 
 /**
@@ -156,13 +250,21 @@ function randomUniqueDigits(): number[] {
  * @param options.selectedPatterns - 지정 시 2개 중복 + 해당 배치 패턴으로 생성
  * @param options.selectedDuplicateDigits - 지정 시 중복될 숫자로 사용
  * @param options.disallowDuplicateDigits - true면 6자리 모두 서로 다른 숫자만 생성
+ * @param options.excludedDigits - 생성에서 제외할 숫자
  */
 function generatePrediction(lotteryData: LotteryData[], options?: PredictionOptions): number[] {
   const disallowDup = options?.disallowDuplicateDigits === true;
+  const excludedSet = buildExcludedSet(options?.excludedDigits);
+  const pickAllowedRandom = (): number => {
+    const pool = allowedDigitPool(excludedSet);
+    if (pool.length === 0) return Math.floor(Math.random() * 10);
+    return pool[Math.floor(Math.random() * pool.length)];
+  };
 
   if (lotteryData.length === 0) {
     // 데이터가 없으면 완전 랜덤 (중복 금지 옵션 시 서로 다른 숫자)
-    return disallowDup ? randomUniqueDigits() : Array.from({ length: 6 }, () => Math.floor(Math.random() * 10));
+    if (disallowDup) return randomUniqueDigits(excludedSet);
+    return Array.from({ length: 6 }, () => pickAllowedRandom());
   }
 
   const positionFreq = analyzePositionFrequency(lotteryData);
@@ -272,22 +374,24 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
       }
     }
     
-    // 중복될 숫자 선택: 사용자 지정 또는 1개 중복 숫자 빈도 순위 기반 룰렛 휠
+    // 중복될 숫자 선택: 사용자 지정 또는 1개 중복 숫자 빈도 순위 기반 룰렛 휠 (제외 숫자 제외)
     let duplicateDigit: number;
-    const selectedDupDigits = options?.selectedDuplicateDigits ?? [];
+    const selectedDupDigits = (options?.selectedDuplicateDigits ?? []).filter((d) => !excludedSet.has(d));
     const userDigit = selectedDupDigits.length > 0
       ? selectedDupDigits[Math.floor(Math.random() * selectedDupDigits.length)]
       : null;
     if (userDigit !== null && userDigit >= 0 && userDigit <= 9) {
       duplicateDigit = userDigit;
     } else {
-      const singleDuplicateWeights = duplicateAnalysis.singleDuplicateDigitRanking.map(item => ({
-        digit: parseInt(item.digit),
-        weight: item.count
-      }));
+      const singleDuplicateWeights = duplicateAnalysis.singleDuplicateDigitRanking
+        .map(item => ({
+          digit: parseInt(item.digit),
+          weight: item.count
+        }))
+        .filter((item) => !excludedSet.has(item.digit));
       const totalDuplicateWeight = singleDuplicateWeights.reduce((sum, d) => sum + d.weight, 0);
       let duplicateRandom = totalDuplicateWeight > 0 ? Math.random() * totalDuplicateWeight : Math.random() * 10;
-      duplicateDigit = 0;
+      duplicateDigit = pickAllowedRandom();
       if (singleDuplicateWeights.length > 0) {
         for (const { digit, weight } of singleDuplicateWeights) {
           duplicateRandom -= weight;
@@ -296,8 +400,6 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
             break;
           }
         }
-      } else {
-        duplicateDigit = Math.floor(Math.random() * 10);
       }
     }
     
@@ -332,8 +434,9 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
           ? transitionData.transitionProbabilities[prevDigit] || {}
           : {};
         
-        // O 숫자는 항상 제외. 다중 중복 비허용 시 이미 쓴 숫자도 제외
+        // O 숫자·제외 숫자는 항상 제외. 다중 중복 비허용 시 이미 쓴 숫자도 제외
         for (let digit = 0; digit <= 9; digit++) {
+          if (excludedSet.has(digit)) continue;
           if (digit === duplicateDigit) continue;
           if (!allowMultiDup && usedDigitsForPattern.has(digit)) continue;
           const freq = posData.digitFrequency[digit] || 0;
@@ -364,8 +467,9 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
             generatedDigits[pos] = weights[weights.length - 1].digit;
           }
         } else {
-          // 후보가 없으면 사용 가능한 숫자 중 랜덤 (O 제외, 다중 비허용 시 used 제외)
+          // 후보가 없으면 사용 가능한 숫자 중 랜덤 (제외·O 제외, 다중 비허용 시 used 제외)
           const available = Array.from({ length: 10 }, (_, i) => i).filter((d) => {
+            if (excludedSet.has(d)) return false;
             if (d === duplicateDigit) return false;
             if (!allowMultiDup && usedDigitsForPattern.has(d)) return false;
             return true;
@@ -373,7 +477,7 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
           generatedDigits[pos] =
             available.length > 0
               ? available[Math.floor(Math.random() * available.length)]
-              : Math.floor(Math.random() * 10);
+              : pickAllowedRandom();
         }
 
         if (!allowMultiDup && generatedDigits[pos] !== -1) {
@@ -399,19 +503,18 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
           ? transitionData.transitionProbabilities[prevDigit] || {}
           : {};
         
-        // 사용되지 않은 숫자만 가중치 계산
+        // 사용되지 않은·제외되지 않은 숫자만 가중치 계산
         for (let digit = 0; digit <= 9; digit++) {
-          if (!usedDigits.has(digit)) {
-            const freq = posData.digitFrequency[digit] || 0;
-            // 전이 패턴 확률 (0~1 범위, 없으면 0.1 기본값)
-            const transitionWeight = transitionProb[digit] || 0.1;
-            // 빈도와 전이 패턴을 조합한 가중치 (전이 패턴을 더 중요하게 반영)
-            const combinedWeight = (freq + 1) * (1 + transitionWeight * 5); // 전이 패턴에 5배 가중치
-            weights.push({
-              digit,
-              weight: combinedWeight
-            });
-          }
+          if (excludedSet.has(digit) || usedDigits.has(digit)) continue;
+          const freq = posData.digitFrequency[digit] || 0;
+          // 전이 패턴 확률 (0~1 범위, 없으면 0.1 기본값)
+          const transitionWeight = transitionProb[digit] || 0.1;
+          // 빈도와 전이 패턴을 조합한 가중치 (전이 패턴을 더 중요하게 반영)
+          const combinedWeight = (freq + 1) * (1 + transitionWeight * 5); // 전이 패턴에 5배 가중치
+          weights.push({
+            digit,
+            weight: combinedWeight
+          });
         }
         
         // 가중치에 따라 숫자 선택
@@ -429,21 +532,23 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
           }
         } else {
           // 모든 숫자를 사용한 경우 랜덤 선택
-          const availableDigits = Array.from({ length: 10 }, (_, i) => i).filter(d => !usedDigits.has(d));
+          const availableDigits = Array.from({ length: 10 }, (_, i) => i).filter(
+            (d) => !excludedSet.has(d) && !usedDigits.has(d)
+          );
           if (availableDigits.length > 0) {
             const digit = availableDigits[Math.floor(Math.random() * availableDigits.length)];
             generatedDigits.push(digit);
             usedDigits.add(digit);
           } else {
-            generatedDigits.push(Math.floor(Math.random() * 10));
+            generatedDigits.push(pickAllowedRandom());
           }
         }
       }
     } else {
       // selectedFrequency 개의 중복을 가지는 숫자 생성
-      // 중복될 숫자 선택: 사용자 지정 또는 각 자리별 빈도 기반
+      // 중복될 숫자 선택: 사용자 지정 또는 각 자리별 빈도 기반 (제외 숫자 제외)
       const duplicateDigit = (() => {
-        const selectedDupDigits2 = options?.selectedDuplicateDigits ?? [];
+        const selectedDupDigits2 = (options?.selectedDuplicateDigits ?? []).filter((d) => !excludedSet.has(d));
         const userDigit2 = selectedDupDigits2.length > 0
           ? selectedDupDigits2[Math.floor(Math.random() * selectedDupDigits2.length)]
           : null;
@@ -454,6 +559,7 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
         const weights: { digit: number; weight: number }[] = [];
         
         for (let digit = 0; digit <= 9; digit++) {
+          if (excludedSet.has(digit)) continue;
           const freq = posData.digitFrequency[digit] || 0;
           weights.push({
             digit,
@@ -470,7 +576,7 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
             return digit;
           }
         }
-        return Math.floor(Math.random() * 10);
+        return pickAllowedRandom();
       })();
       
       // 중복 위치 선택
@@ -500,19 +606,18 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
             ? transitionData.transitionProbabilities[prevDigit] || {}
             : {};
           
-          // 중복 숫자 제외하고 가중치 계산
+          // 중복 숫자·제외 숫자 제외하고 가중치 계산
           for (let digit = 0; digit <= 9; digit++) {
-            if (digit !== duplicateDigit) {
-              const freq = posData.digitFrequency[digit] || 0;
-              // 전이 패턴 확률 (0~1 범위, 없으면 0.1 기본값)
-              const transitionWeight = transitionProb[digit] || 0.1;
-              // 빈도와 전이 패턴을 조합한 가중치 (전이 패턴을 더 중요하게 반영)
-              const combinedWeight = (freq + 1) * (1 + transitionWeight * 5); // 전이 패턴에 5배 가중치
-              weights.push({
-                digit,
-                weight: combinedWeight
-              });
-            }
+            if (excludedSet.has(digit) || digit === duplicateDigit) continue;
+            const freq = posData.digitFrequency[digit] || 0;
+            // 전이 패턴 확률 (0~1 범위, 없으면 0.1 기본값)
+            const transitionWeight = transitionProb[digit] || 0.1;
+            // 빈도와 전이 패턴을 조합한 가중치 (전이 패턴을 더 중요하게 반영)
+            const combinedWeight = (freq + 1) * (1 + transitionWeight * 5); // 전이 패턴에 5배 가중치
+            weights.push({
+              digit,
+              weight: combinedWeight
+            });
           }
           
           // 가중치에 따라 숫자 선택
@@ -528,18 +633,19 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
               }
             }
           } else {
-            generatedDigits[pos] = Math.floor(Math.random() * 10);
+            generatedDigits[pos] = pickAllowedRandom();
           }
         }
       }
     }
   }
   
-  // 사용자가 배치 패턴·중복 숫자·자리 고정·중복 금지를 지정했으면, 이후 합계/직전회차 조정을 하지 않아 제약이 유지되도록 함
+  // 사용자가 배치 패턴·중복 숫자·자리 고정·중복 금지·제외 숫자를 지정했으면, 이후 합계/직전회차 조정을 하지 않아 제약이 유지되도록 함
   const userSpecifiedOptions = selectedPatternsList.length > 0 ||
     (options?.selectedDuplicateDigits ?? []).length > 0 ||
     hasFixedDigits(options?.fixedDigits) ||
-    disallowDup;
+    disallowDup ||
+    excludedSet.size > 0;
 
   if (!userSpecifiedOptions) {
     let currentSum = generatedDigits.reduce((sum, d) => sum + d, 0);
@@ -626,16 +732,22 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
     }
   }
 
-  let result = applyFixedDigits(generatedDigits, options?.fixedDigits);
+  // 제외된 숫자는 고정 자리로도 적용하지 않음
+  const fixedWithoutExcluded = (options?.fixedDigits ?? []).map((d) =>
+    d !== null && d !== undefined && excludedSet.has(d) ? null : d
+  ) as (number | null)[];
+  let result = applyFixedDigits(generatedDigits, fixedWithoutExcluded);
 
-  // 중복 허용 안 함: 고정 자리 적용 후에도 중복이 있으면 고정 자리만 유지한 채 나머지를 재배치
-  if (disallowDup && hasAnyDuplicateDigits(result)) {
-    const fixed = options?.fixedDigits;
+  const needsRebuildForDup = disallowDup && hasAnyDuplicateDigits(result);
+  const needsRebuildForExcluded = result.some((d) => excludedSet.has(d));
+
+  // 중복 금지·제외 숫자 위반 시: 고정 자리(제외 아닌 것만) 유지한 채 나머지 재배치
+  if (needsRebuildForDup || needsRebuildForExcluded) {
     const used = new Set<number>();
     const rebuilt = Array(6).fill(-1) as number[];
     for (let i = 0; i < 6; i++) {
-      const v = getFixedDigit(fixed, i);
-      if (v !== null && !used.has(v)) {
+      const v = getFixedDigit(fixedWithoutExcluded, i);
+      if (v !== null && !excludedSet.has(v) && !(disallowDup && used.has(v))) {
         rebuilt[i] = v;
         used.add(v);
       }
@@ -645,7 +757,8 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
       const posData = positionFreq[pos];
       const weights: { digit: number; weight: number }[] = [];
       for (let digit = 0; digit <= 9; digit++) {
-        if (used.has(digit)) continue;
+        if (excludedSet.has(digit)) continue;
+        if (disallowDup && used.has(digit)) continue;
         const freq = posData?.digitFrequency[digit] || 0;
         weights.push({ digit, weight: freq + 1 });
       }
@@ -665,10 +778,14 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
           used.add(rebuilt[pos]);
         }
       } else {
-        const available = Array.from({ length: 10 }, (_, i) => i).filter((d) => !used.has(d));
+        const available = Array.from({ length: 10 }, (_, i) => i).filter((d) => {
+          if (excludedSet.has(d)) return false;
+          if (disallowDup && used.has(d)) return false;
+          return true;
+        });
         rebuilt[pos] = available.length > 0
           ? available[Math.floor(Math.random() * available.length)]
-          : Math.floor(Math.random() * 10);
+          : pickAllowedRandom();
         used.add(rebuilt[pos]);
       }
     }
@@ -678,7 +795,11 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
   return result;
 }
 
-export default function PredictionGenerator({ lotteryData, analyzedNumbers }: PredictionGeneratorProps) {
+export default function PredictionGenerator({
+  lotteryData,
+  analyzedNumbers,
+  onExcludedDigitsChange,
+}: PredictionGeneratorProps) {
   const [predictedNumbers, setPredictedNumbers] = useState<number[] | null>(null);
   const [predictionSum, setPredictionSum] = useState<number | null>(null);
   const [predictionPattern, setPredictionPattern] = useState<string | null>(null);
@@ -705,7 +826,32 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
   const [allowMultipleDuplicateDigitsOption, setAllowMultipleDuplicateDigitsOption] = useState(false);
   /** 체크 시 6자리 모두 서로 다른 숫자만 생성 (중복 0개). 2종 이상 허용과 상호 배타 */
   const [disallowDuplicateDigitsOption, setDisallowDuplicateDigitsOption] = useState(false);
+  /** 생성 결과에서 나오지 않게 할 숫자(0~9) */
+  const [excludedDigitOptions, setExcludedDigitOptions] = useState<number[]>([]);
   const [gameRecommendations, setGameRecommendations] = useState<{ digit: { key: number; label: string; signalScore: number; overdueRatio: number; frequency: number; absenceCount: number; avgInterval: number; count: number }; pattern: string | null }[]>([]);
+
+  useEffect(() => {
+    onExcludedDigitsChange?.(excludedDigitOptions);
+  }, [excludedDigitOptions, onExcludedDigitsChange]);
+  /** 섹션 접힘 상태 (localStorage 동기화) */
+  const [collapsedMap, setCollapsedMap] = useState<Partial<Record<PredictionCollapseKey, boolean>>>(
+    () => loadPredictionCollapsed()
+  );
+  const isSectionCollapsed = useCallback(
+    (key: PredictionCollapseKey) => !!collapsedMap[key],
+    [collapsedMap]
+  );
+  const toggleSectionCollapsed = useCallback((key: PredictionCollapseKey) => {
+    setCollapsedMap((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      // 접힐 때 열린 자리별 드롭다운 닫기
+      if (next[key] && (key === 'options' || key === 'optionsFixed')) {
+        setOpenFixedDigitPos(null);
+      }
+      savePredictionCollapsed(next);
+      return next;
+    });
+  }, []);
 
   // ── 저장 관련 state ──────────────────────────────────────────────────────
   const [savedPredictions, setSavedPredictions] = useState<number[][]>([]);
@@ -832,14 +978,20 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
 
       const genOpts = {
         selectedPatterns: selectedPatternOptions,
-        selectedDuplicateDigits: selectedDuplicateDigitOptions,
-        fixedDigits: fixedDigitByPosition,
+        selectedDuplicateDigits: selectedDuplicateDigitOptions.filter(
+          (d) => !excludedDigitOptions.includes(d)
+        ),
+        fixedDigits: fixedDigitByPosition.map((d) =>
+          d !== null && excludedDigitOptions.includes(d) ? null : d
+        ),
         limitToStdDev: limitToStdDevOption,
         useRecentTrend: useRecentTrendOption,
         allowMultipleDuplicateDigits: allowMultipleDuplicateDigitsOption && !disallowDuplicateDigitsOption,
         disallowDuplicateDigits: disallowDuplicateDigitsOption,
+        excludedDigits: excludedDigitOptions,
       };
 
+      const excludedSetForRetry = new Set(excludedDigitOptions);
       const savedKeys = new Set(savedPredictions.map(d => d.join(',')));
       let numbers = generatePrediction(lotteryData, genOpts);
       let retries = 0;
@@ -848,7 +1000,8 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
         const isDuplicate = savedKeys.size > 0 && savedKeys.has(numbers.join(','));
         const outOfStdDev = limitToStdDevOption && Math.abs(s - avgSum) > stdDev;
         const hasDupDigits = disallowDuplicateDigitsOption && hasAnyDuplicateDigits(numbers);
-        if (!isDuplicate && !outOfStdDev && !hasDupDigits) break;
+        const hasExcluded = numbers.some((d) => excludedSetForRetry.has(d));
+        if (!isDuplicate && !outOfStdDev && !hasDupDigits && !hasExcluded) break;
         numbers = generatePrediction(lotteryData, genOpts);
         retries++;
       }
@@ -1061,6 +1214,11 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
     [lotteryData]
   );
 
+  const digitConsecutiveAppearance = useMemo(
+    () => analyzeDigitConsecutiveAppearance(lotteryData),
+    [lotteryData]
+  );
+
   // 자리별 숫자 지정 드롭다운 바깥 클릭 시 닫기
   useEffect(() => {
     if (openFixedDigitPos === null) return;
@@ -1215,106 +1373,134 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
             {/* 직전 회차 정보 및 전이 확률 */}
             {lastRoundDigits && (
               <div className="mt-3 sm:mt-4 p-3 sm:p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-200">
-                <div className="flex items-center justify-center gap-0.5 mb-2 sm:mb-3">
-                  <span className="text-xs sm:text-sm font-semibold text-gray-700">
+                <div className={`flex items-center justify-center gap-0.5 ${isSectionCollapsed('resultTransition') ? '' : 'mb-2 sm:mb-3'}`}>
+                  <CollapseTitle
+                    collapsed={isSectionCollapsed('resultTransition')}
+                    onToggle={() => toggleSectionCollapsed('resultTransition')}
+                    className="text-xs sm:text-sm font-semibold text-gray-700"
+                  >
                     직전 회차 대비 전이 확률
-                  </span>
+                  </CollapseTitle>
                   <InfoTooltip
                     text="직전 회차 각 자리 숫자에서 생성된 숫자로 전이될 확률"
                     width="w-72"
                   />
                 </div>
-                {/* 데스크톱: 가로 배치 */}
-                <div className="hidden md:grid md:grid-cols-6 gap-2">
-                  {predictedNumbers.map((num, index) => {
-                    const prevDigit = lastRoundDigits[index];
-                    const transitionProb = transitionProbabilities[index] || 0;
-                    
-                    return (
-                      <div key={index} className="text-center">
-                        <div className="text-xs text-gray-600 mb-1">
-                          {index + 1}번째
-                        </div>
-                        <div className="flex items-center justify-center gap-1 mb-1">
-                          <span className="text-sm font-bold text-gray-700">{prevDigit}</span>
-                          <span className="text-xs text-gray-400">→</span>
-                          <span className="text-sm font-bold text-indigo-600">{num}</span>
-                        </div>
-                        <div className={`text-xs font-bold ${
-                          transitionProb >= 20 ? 'text-green-600' :
-                          transitionProb >= 10 ? 'text-yellow-600' :
-                          transitionProb >= 5 ? 'text-orange-600' :
-                          'text-red-600'
-                        }`}>
-                          {transitionProb.toFixed(1)}%
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {/* 모바일/태블릿: 세로 배치 */}
-                <div className="md:hidden space-y-1.5 sm:space-y-2">
-                  {predictedNumbers.map((num, index) => {
-                    const prevDigit = lastRoundDigits[index];
-                    const transitionProb = transitionProbabilities[index] || 0;
-                    
-                    return (
-                      <div key={index} className="flex items-center justify-between p-2 bg-white rounded border border-indigo-100">
-                        <span className="text-xs text-gray-500 w-12 sm:w-16">{index + 1}번째</span>
-                        <div className={`flex-1 text-xs sm:text-sm font-bold text-center ${
-                          transitionProb >= 20 ? 'text-green-600' :
-                          transitionProb >= 10 ? 'text-yellow-600' :
-                          transitionProb >= 5 ? 'text-orange-600' :
-                          'text-red-600'
-                        }`}>
-                          {prevDigit}→{num} {transitionProb.toFixed(1)}%
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                {!isSectionCollapsed('resultTransition') && (
+                  <>
+                    {/* 데스크톱: 가로 배치 */}
+                    <div className="hidden md:grid md:grid-cols-6 gap-2">
+                      {predictedNumbers.map((num, index) => {
+                        const prevDigit = lastRoundDigits[index];
+                        const transitionProb = transitionProbabilities[index] || 0;
+                        
+                        return (
+                          <div key={index} className="text-center">
+                            <div className="text-xs text-gray-600 mb-1">
+                              {index + 1}번째
+                            </div>
+                            <div className="flex items-center justify-center gap-1 mb-1">
+                              <span className="text-sm font-bold text-gray-700">{prevDigit}</span>
+                              <span className="text-xs text-gray-400">→</span>
+                              <span className="text-sm font-bold text-indigo-600">{num}</span>
+                            </div>
+                            <div className={`text-xs font-bold ${
+                              transitionProb >= 20 ? 'text-green-600' :
+                              transitionProb >= 10 ? 'text-yellow-600' :
+                              transitionProb >= 5 ? 'text-orange-600' :
+                              'text-red-600'
+                            }`}>
+                              {transitionProb.toFixed(1)}%
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* 모바일/태블릿: 세로 배치 */}
+                    <div className="md:hidden space-y-1.5 sm:space-y-2">
+                      {predictedNumbers.map((num, index) => {
+                        const prevDigit = lastRoundDigits[index];
+                        const transitionProb = transitionProbabilities[index] || 0;
+                        
+                        return (
+                          <div key={index} className="flex items-center justify-between p-2 bg-white rounded border border-indigo-100">
+                            <span className="text-xs text-gray-500 w-12 sm:w-16">{index + 1}번째</span>
+                            <div className={`flex-1 text-xs sm:text-sm font-bold text-center ${
+                              transitionProb >= 20 ? 'text-green-600' :
+                              transitionProb >= 10 ? 'text-yellow-600' :
+                              transitionProb >= 5 ? 'text-orange-600' :
+                              'text-red-600'
+                            }`}>
+                              {prevDigit}→{num} {transitionProb.toFixed(1)}%
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mt-3 sm:mt-4">
             <div className="p-3 sm:p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-200">
-              <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 text-center">합계 정보</div>
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                <div className="text-center">
-                  <div className="text-[10px] sm:text-xs text-gray-600 mb-1">자릿수 합계</div>
-                  <div className="text-lg sm:text-xl font-bold text-green-600">
-                    {predictionSum}
-                  </div>
-                </div>
-                <div className="text-center">
-                  <div className="text-[10px] sm:text-xs text-gray-600 mb-1">평균 합계</div>
-                  <div className="text-lg sm:text-xl font-bold text-purple-600">
-                    {sumAnalysis.statistics.avgSum.toFixed(1)}
-                  </div>
-                </div>
-                <div className="text-center">
-                  <div className="text-[10px] sm:text-xs text-gray-600 mb-1">합계 차이</div>
-                  <div className={`text-lg sm:text-xl font-bold ${Math.abs(predictionSum! - sumAnalysis.statistics.avgSum) <= 5 ? 'text-green-600' : 'text-orange-600'}`}>
-                    {predictionSum && (predictionSum - sumAnalysis.statistics.avgSum).toFixed(1)}
-                  </div>
-                </div>
+              <div className={`flex justify-center ${isSectionCollapsed('resultSum') ? '' : 'mb-2 sm:mb-3'}`}>
+                <CollapseTitle
+                  collapsed={isSectionCollapsed('resultSum')}
+                  onToggle={() => toggleSectionCollapsed('resultSum')}
+                  className="text-xs sm:text-sm font-semibold text-gray-700"
+                >
+                  합계 정보
+                </CollapseTitle>
               </div>
-              {predictionSum && (
-                <div className={`mt-2 sm:mt-3 pt-2 border-t text-[10px] sm:text-xs text-center ${
-                  predictionSum >= sumAnalysis.statistics.avgSum - 5 && predictionSum <= sumAnalysis.statistics.avgSum + 5
-                    ? 'border-green-200 text-green-700'
-                    : 'border-orange-200 text-orange-700'
-                }`}>
-                  {predictionSum < sumAnalysis.statistics.avgSum - 5 && '⚠️ 합계가 평균보다 낮습니다'}
-                  {predictionSum >= sumAnalysis.statistics.avgSum - 5 && predictionSum <= sumAnalysis.statistics.avgSum + 5 && '✅ 합계가 평균 범위 내입니다'}
-                  {predictionSum > sumAnalysis.statistics.avgSum + 5 && '⚠️ 합계가 평균보다 높습니다'}
-                </div>
+              {!isSectionCollapsed('resultSum') && (
+                <>
+                  <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                    <div className="text-center">
+                      <div className="text-[10px] sm:text-xs text-gray-600 mb-1">자릿수 합계</div>
+                      <div className="text-lg sm:text-xl font-bold text-green-600">
+                        {predictionSum}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[10px] sm:text-xs text-gray-600 mb-1">평균 합계</div>
+                      <div className="text-lg sm:text-xl font-bold text-purple-600">
+                        {sumAnalysis.statistics.avgSum.toFixed(1)}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[10px] sm:text-xs text-gray-600 mb-1">합계 차이</div>
+                      <div className={`text-lg sm:text-xl font-bold ${Math.abs(predictionSum! - sumAnalysis.statistics.avgSum) <= 5 ? 'text-green-600' : 'text-orange-600'}`}>
+                        {predictionSum && (predictionSum - sumAnalysis.statistics.avgSum).toFixed(1)}
+                      </div>
+                    </div>
+                  </div>
+                  {predictionSum && (
+                    <div className={`mt-2 sm:mt-3 pt-2 border-t text-[10px] sm:text-xs text-center ${
+                      predictionSum >= sumAnalysis.statistics.avgSum - 5 && predictionSum <= sumAnalysis.statistics.avgSum + 5
+                        ? 'border-green-200 text-green-700'
+                        : 'border-orange-200 text-orange-700'
+                    }`}>
+                      {predictionSum < sumAnalysis.statistics.avgSum - 5 && '⚠️ 합계가 평균보다 낮습니다'}
+                      {predictionSum >= sumAnalysis.statistics.avgSum - 5 && predictionSum <= sumAnalysis.statistics.avgSum + 5 && '✅ 합계가 평균 범위 내입니다'}
+                      {predictionSum > sumAnalysis.statistics.avgSum + 5 && '⚠️ 합계가 평균보다 높습니다'}
+                    </div>
+                  )}
+                </>
               )}
             </div>
             <div className="text-center p-3 sm:p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-              <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-2">배치 패턴</div>
-              {predictionPattern ? (
+              <div className={`flex justify-center ${isSectionCollapsed('resultPattern') ? '' : 'mb-2'}`}>
+                <CollapseTitle
+                  collapsed={isSectionCollapsed('resultPattern')}
+                  onToggle={() => toggleSectionCollapsed('resultPattern')}
+                  className="text-xs sm:text-sm font-semibold text-gray-700"
+                >
+                  배치 패턴
+                </CollapseTitle>
+              </div>
+              {!isSectionCollapsed('resultPattern') && predictionPattern ? (
                 <>
                   <div className="flex items-center justify-center gap-0.5 sm:gap-1 mb-2">
                     <span className="text-base sm:text-lg md:text-xl font-bold text-gray-800 font-mono">
@@ -1355,19 +1541,45 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
 
       {/* 배치 패턴 / 중복 숫자 선택 옵션 */}
       <div className="mb-4 p-3 sm:p-4 bg-white/70 rounded-lg border border-purple-200">
-        <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-3">예측 옵션 (복수 선택 가능, 미선택 시 자동)</div>
+        <div className={`flex items-center ${isSectionCollapsed('options') ? '' : 'mb-3'}`}>
+          <CollapseTitle
+            collapsed={isSectionCollapsed('options')}
+            onToggle={() => toggleSectionCollapsed('options')}
+            className="text-xs sm:text-sm font-semibold text-gray-700"
+          >
+            예측 옵션
+          </CollapseTitle>
+          <InfoTooltip
+            text="복수 선택 가능합니다. 미선택 시 분석 가중치로 자동 선택됩니다."
+            width="w-72"
+          />
+        </div>
 
+        {!isSectionCollapsed('options') && (
+        <>
         {/* 배치 패턴 + 중복 숫자 — 같은 줄 카드 */}
         <div className="grid grid-cols-2 gap-2 mb-3">
           {/* 배치 패턴 카드 */}
           <div className="bg-white rounded-lg border border-purple-100 p-2">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold text-gray-600">배치 패턴</span>
+            <div className={`flex items-center justify-between ${isSectionCollapsed('optionsPattern') ? '' : 'mb-1'}`}>
+              <span className="flex items-center text-xs font-semibold text-gray-600">
+                <CollapseTitle
+                  collapsed={isSectionCollapsed('optionsPattern')}
+                  onToggle={() => toggleSectionCollapsed('optionsPattern')}
+                  className="text-xs font-semibold text-gray-600"
+                >
+                  배치 패턴
+                </CollapseTitle>
+                <InfoTooltip
+                  text="O는 중복 숫자 위치, X는 그 외 자리입니다. 예: XXXXOO는 마지막 두 자리만 같은 숫자. 출=출현 횟수, 미=연속 미출현 회차."
+                  width="w-80"
+                />
+              </span>
               {selectedPatternOptions.length > 0 && (
                 <button onClick={() => setSelectedPatternOptions([])} className="text-[10px] text-purple-400 hover:text-purple-600">해제</button>
               )}
             </div>
-            <div className="grid grid-cols-5 gap-1">
+            <div className={`grid grid-cols-5 gap-1 ${isSectionCollapsed('optionsPattern') ? 'hidden' : ''}`}>
               {(() => {
                 const maxAbs = Math.max(...positionPatternAnalysis.patternDetails.map(p => p.absenceCount), 1);
                 return positionPatternAnalysis.patternDetails.map((p) => {
@@ -1399,36 +1611,58 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
 
           {/* 중복 숫자 카드 */}
           <div className="bg-white rounded-lg border border-purple-100 p-2">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold text-gray-600">중복 숫자</span>
+            <div className={`flex items-center justify-between ${isSectionCollapsed('optionsDupDigit') ? '' : 'mb-1'}`}>
+              <span className="flex items-center text-xs font-semibold text-gray-600">
+                <CollapseTitle
+                  collapsed={isSectionCollapsed('optionsDupDigit')}
+                  onToggle={() => toggleSectionCollapsed('optionsDupDigit')}
+                  className="text-xs font-semibold text-gray-600"
+                >
+                  중복 숫자
+                </CollapseTitle>
+                <InfoTooltip
+                  text="배치 패턴의 O 자리에 들어갈 숫자를 지정합니다. 출=해당 숫자가 2중복으로 나온 횟수, 미=연속 미출현 회차. 제외된 숫자는 선택할 수 없습니다."
+                  width="w-80"
+                />
+              </span>
               {selectedDuplicateDigitOptions.length > 0 && (
                 <button onClick={() => setSelectedDuplicateDigitOptions([])} className="text-[10px] text-purple-400 hover:text-purple-600">해제</button>
               )}
             </div>
-            <div className="grid grid-cols-5 gap-1">
+            <div className={`grid grid-cols-5 gap-1 ${isSectionCollapsed('optionsDupDigit') ? 'hidden' : ''}`}>
               {(() => {
                 const maxAbs = Math.max(...duplicateAnalysisForOptions.singleDuplicateDigitRanking.map(i => i.absenceCount), 1);
                 return duplicateAnalysisForOptions.singleDuplicateDigitRanking.map((item) => {
                   const digit = parseInt(item.digit);
+                  const isExcluded = excludedDigitOptions.includes(digit);
                   const isSelected = selectedDuplicateDigitOptions.includes(digit);
                   const absAlpha = (item.absenceCount / maxAbs) * 0.45;
                   return (
                     <button
                       key={item.digit}
+                      disabled={isExcluded}
                       onClick={() => {
+                        if (isExcluded) return;
                         setSelectedDuplicateDigitOptions(prev =>
                           isSelected ? prev.filter(d => d !== digit) : [...prev, digit]
                         );
                       }}
                       className={`flex flex-col items-center gap-0.5 py-0.5 rounded-lg border transition-all ${
-                        isSelected ? 'border-purple-400 bg-purple-100' : 'border-gray-200 hover:border-purple-300'
+                        isExcluded
+                          ? 'border-red-200 bg-red-50 opacity-50 cursor-not-allowed'
+                          : isSelected
+                            ? 'border-purple-400 bg-purple-100'
+                            : 'border-gray-200 hover:border-purple-300'
                       }`}
-                      style={!isSelected ? { backgroundColor: `rgba(245, 158, 11, ${absAlpha})` } : undefined}
+                      style={!isSelected && !isExcluded ? { backgroundColor: `rgba(245, 158, 11, ${absAlpha})` } : undefined}
+                      title={isExcluded ? '제외된 숫자입니다' : undefined}
                     >
                       <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center transition-all ${
-                        isSelected
-                          ? `bg-gradient-to-br ${digitColor(digit)} text-white shadow ring-1 ring-purple-400`
-                          : 'bg-gray-100 text-gray-600'
+                        isExcluded
+                          ? 'bg-red-100 text-red-400 line-through'
+                          : isSelected
+                            ? `bg-gradient-to-br ${digitColor(digit)} text-white shadow ring-1 ring-purple-400`
+                            : 'bg-gray-100 text-gray-600'
                       }`}>
                         {item.digit}
                       </span>
@@ -1442,10 +1676,118 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
           </div>
         </div>
 
+        {/* 제외할 숫자 */}
+        <div className="bg-white rounded-lg border border-red-100 p-2 mb-3">
+          <div className={`flex items-center justify-between gap-2 ${isSectionCollapsed('optionsExclude') ? '' : 'mb-2'}`}>
+            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs font-semibold text-gray-600">
+              <span className="inline-flex items-center">
+                <CollapseTitle
+                  collapsed={isSectionCollapsed('optionsExclude')}
+                  onToggle={() => toggleSectionCollapsed('optionsExclude')}
+                  className="text-xs font-semibold text-gray-600"
+                >
+                  제외할 숫자
+                </CollapseTitle>
+                <InfoTooltip
+                  text="선택한 숫자는 번호 뽑기 결과에 포함되지 않습니다. 최대/평균/최근은 자리·개수와 무관하게, 회차에 해당 숫자가 1회라도 포함되면 출현으로 본 연속 출현 회차입니다. 최근은 최신 회차부터 이어진 현재 연속 출현입니다."
+                  width="w-80"
+                />
+              </span>
+              {excludedDigitOptions.length > 0 && (
+                <span className="text-[10px] font-medium text-red-600">
+                  현재 제외: {excludedDigitOptions.join(', ')}
+                </span>
+              )}
+            </span>
+            {excludedDigitOptions.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setExcludedDigitOptions([])}
+                className="shrink-0 text-[10px] text-red-400 hover:text-red-600"
+              >
+                해제
+              </button>
+            )}
+          </div>
+          <div className={`grid grid-cols-10 gap-1 ${isSectionCollapsed('optionsExclude') ? 'hidden' : ''}`}>
+            {Array.from({ length: 10 }, (_, digit) => {
+              const isExcluded = excludedDigitOptions.includes(digit);
+              const streak = digitConsecutiveAppearance[digit];
+              const maxStreak = streak?.maxStreak ?? 0;
+              const avgStreak = streak?.avgStreak ?? 0;
+              const recentStreak = streak?.recentStreak ?? 0;
+              return (
+                <button
+                  key={digit}
+                  type="button"
+                  onClick={() => {
+                    setExcludedDigitOptions((prev) => {
+                      const next = isExcluded
+                        ? prev.filter((d) => d !== digit)
+                        : [...prev, digit].sort((a, b) => a - b);
+                      return next;
+                    });
+                    if (!isExcluded) {
+                      // 제외하면 중복 숫자·자리 고정에서도 제거
+                      setSelectedDuplicateDigitOptions((prev) => prev.filter((d) => d !== digit));
+                      setFixedDigitByPosition((prev) =>
+                        prev.map((d) => (d === digit ? null : d))
+                      );
+                    }
+                  }}
+                  className={`flex min-w-0 items-center gap-1 px-1 py-1.5 rounded-lg border transition-all text-left ${
+                    isExcluded
+                      ? 'border-red-400 bg-red-100 text-red-700'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-red-300'
+                  }`}
+                  title={
+                    isExcluded
+                      ? `${digit} 제외 해제`
+                      : `${digit} 제외 · 연속출현 최대${maxStreak} 평균${avgStreak.toFixed(1)} 최근${recentStreak}`
+                  }
+                >
+                  <span
+                    className={`w-6 h-6 shrink-0 rounded-full text-xs font-bold flex items-center justify-center ${
+                      isExcluded
+                        ? 'bg-red-500 text-white line-through decoration-white'
+                        : `bg-gradient-to-br ${digitColor(digit)} text-white`
+                    }`}
+                  >
+                    {digit}
+                  </span>
+                  <span className="flex min-w-0 flex-col gap-0.5 font-mono text-[11px] sm:text-xs tabular-nums leading-tight">
+                    <span className={`truncate ${isExcluded ? 'text-red-700' : 'text-gray-700'}`}>
+                      최대{maxStreak}
+                    </span>
+                    <span className={`truncate ${isExcluded ? 'text-red-600' : 'text-gray-500'}`}>
+                      평균{avgStreak.toFixed(1)}
+                    </span>
+                    <span className={`truncate ${isExcluded ? 'text-red-600' : 'text-amber-700'}`}>
+                      최근{recentStreak}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* 자리별 숫자 지정 */}
         <div className="bg-white rounded-lg border border-purple-100 p-2 mb-3" ref={fixedDigitPickerRef}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-600">자리별 숫자 지정</span>
+          <div className={`flex items-center justify-between ${isSectionCollapsed('optionsFixed') ? '' : 'mb-2'}`}>
+            <span className="flex items-center text-xs font-semibold text-gray-600">
+              <CollapseTitle
+                collapsed={isSectionCollapsed('optionsFixed')}
+                onToggle={() => toggleSectionCollapsed('optionsFixed')}
+                className="text-xs font-semibold text-gray-600"
+              >
+                자리별 숫자 지정
+              </CollapseTitle>
+              <InfoTooltip
+                text="지정한 자리는 고정되고, 나머지 자리는 분석 기반으로 생성됩니다. 목록은 숫자 · 출현확률% · 미출현횟수 순이며 열이 맞춰져 있습니다. 제외된 숫자는 선택할 수 없습니다."
+                width="w-80"
+              />
+            </span>
             {fixedDigitByPosition.some((d) => d !== null) && (
               <button
                 type="button"
@@ -1459,7 +1801,7 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
               </button>
             )}
           </div>
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+          <div className={`grid grid-cols-3 sm:grid-cols-6 gap-1.5 ${isSectionCollapsed('optionsFixed') ? 'hidden' : ''}`}>
             {fixedDigitByPosition.map((digit, index) => {
               const stats = positionDigitStats[index] ?? [];
               const selectedStat = digit !== null ? stats[digit] : null;
@@ -1550,13 +1892,16 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
                       <ul className="max-h-56 overflow-y-auto py-0.5">
                         {stats.map((stat) => {
                           const selected = digit === stat.digit;
+                          const isExcludedDigit = excludedDigitOptions.includes(stat.digit);
                           return (
                             <li key={stat.digit}>
                               <button
                                 type="button"
                                 role="option"
                                 aria-selected={selected}
+                                disabled={isExcludedDigit}
                                 onClick={() => {
+                                  if (isExcludedDigit) return;
                                   setFixedDigitByPosition((prev) => {
                                     const next = [...prev];
                                     next[index] = stat.digit;
@@ -1564,14 +1909,20 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
                                   });
                                   setOpenFixedDigitPos(null);
                                 }}
-                                className={`flex w-full items-center px-2 py-1.5 text-left hover:bg-purple-50 ${
-                                  selected ? 'bg-purple-50 font-medium' : ''
+                                className={`flex w-full items-center px-2 py-1.5 text-left ${
+                                  isExcludedDigit
+                                    ? 'cursor-not-allowed bg-red-50 opacity-50'
+                                    : selected
+                                      ? 'bg-purple-50 font-medium hover:bg-purple-50'
+                                      : 'hover:bg-purple-50'
                                 }`}
+                                title={isExcludedDigit ? '제외된 숫자입니다' : undefined}
                               >
                                 <PositionDigitStatRow
                                   digitLabel={String(stat.digit)}
                                   percentageLabel={`${stat.percentage.toFixed(1)}%`}
-                                  absenceLabel={String(stat.absence)}
+                                  absenceLabel={isExcludedDigit ? '제외' : String(stat.absence)}
+                                  muted={isExcludedDigit}
                                 />
                               </button>
                             </li>
@@ -1584,15 +1935,11 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
               );
             })}
           </div>
-          <p className="text-[10px] text-gray-500 mt-2">
-            지정한 자리는 고정되고, 나머지 자리는 분석 기반으로 생성됩니다. 목록은{' '}
-            <span className="font-mono text-gray-600">숫자 · 출현확률% · 미출현횟수</span> 순이며 열이 맞춰져 있습니다.
-          </p>
         </div>
 
         {/* 합계 옵션 + 뽑기 버튼 */}
         <div className="flex flex-wrap items-center gap-3 mt-2.5">
-          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <label className="flex items-center gap-1 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={limitToStdDevOption}
@@ -1600,8 +1947,12 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
               className="w-3.5 h-3.5 accent-purple-600"
             />
             <span className="text-[11px] sm:text-xs text-gray-700">합계 ±1σ 범위 제한</span>
+            <InfoTooltip
+              text="생성된 번호의 자릿수 합계가 전체 평균 ±1 표준편차(σ) 범위를 벗어나면 다시 뽑습니다."
+              width="w-72"
+            />
           </label>
-          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <label className="flex items-center gap-1 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={useRecentTrendOption}
@@ -1609,11 +1960,12 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
               className="w-3.5 h-3.5 accent-purple-600"
             />
             <span className="text-[11px] sm:text-xs text-gray-700">최근 합계 추이 반영</span>
+            <InfoTooltip
+              text="최근 회차 합계 추이를 목표 합계에 일부 반영합니다. 전체 통계와 최근 경향을 섞어 생성합니다."
+              width="w-72"
+            />
           </label>
-          <label
-            className="flex items-center gap-1.5 cursor-pointer select-none"
-            title="체크 시에만 배치 패턴의 O 쌍 외에 다른 숫자도 중복될 수 있습니다. 미체크 시 XXXXOO → 123455처럼 O만 한 쌍입니다."
-          >
+          <label className="flex items-center gap-1 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={allowMultipleDuplicateDigitsOption}
@@ -1625,11 +1977,12 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
               className="w-3.5 h-3.5 accent-purple-600"
             />
             <span className="text-[11px] sm:text-xs text-gray-700">중복 숫자 2종 이상 허용</span>
+            <InfoTooltip
+              text="체크 시에만 배치 패턴의 O 쌍 외에 다른 숫자도 중복될 수 있습니다. 미체크 시 XXXXOO → 123455처럼 O만 한 쌍입니다."
+              width="w-80"
+            />
           </label>
-          <label
-            className="flex items-center gap-1.5 cursor-pointer select-none"
-            title="체크 시 6자리 모두 서로 다른 숫자만 생성합니다. 배치 패턴·중복 숫자 선택은 무시됩니다."
-          >
+          <label className="flex items-center gap-1 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={disallowDuplicateDigitsOption}
@@ -1641,15 +1994,34 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
               className="w-3.5 h-3.5 accent-purple-600"
             />
             <span className="text-[11px] sm:text-xs text-gray-700">중복 숫자 허용 안 함</span>
+            <InfoTooltip
+              text="체크 시 6자리 모두 서로 다른 숫자만 생성합니다. 배치 패턴·중복 숫자 선택은 무시됩니다."
+              width="w-80"
+            />
           </label>
         </div>
+        </>
+        )}
       </div>
 
       {/* 강한 신호 패턴 */}
       {(signalStrengths.patterns.length > 0 || signalStrengths.digits.length > 0) && (
         <div className="mb-4 p-3 sm:p-4 bg-white/70 rounded-lg border border-amber-300">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-xs sm:text-sm font-semibold text-gray-700 shrink-0">현재 가장 강한 신호</span>
+          <div className={`flex items-center justify-between gap-2 ${isSectionCollapsed('strongSignals') ? '' : 'mb-2'}`}>
+            <span className="inline-flex items-center text-xs sm:text-sm font-semibold text-gray-700 shrink-0">
+              <CollapseTitle
+                collapsed={isSectionCollapsed('strongSignals')}
+                onToggle={() => toggleSectionCollapsed('strongSignals')}
+                className="text-xs sm:text-sm font-semibold text-gray-700"
+              >
+                현재 가장 강한 신호
+              </CollapseTitle>
+              <InfoTooltip
+                text="자주 나왔던 패턴·중복 숫자가 최근 오래 미출현일수록 신호가 강하게 표시됩니다. 버튼을 누르면 해당 조합으로 예측 옵션이 선택됩니다."
+                width="w-80"
+              />
+            </span>
+            {!isSectionCollapsed('strongSignals') && (
             <div className="flex items-center gap-1.5">
               <button
                 onClick={() => shuffleGameRecommendations(signalStrengths.digits, signalStrengths.patterns)}
@@ -1683,8 +2055,10 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
                 });
               })()}
             </div>
+            )}
           </div>
 
+          {!isSectionCollapsed('strongSignals') && (
           <div className="flex flex-col gap-1">
             {/* 배치 패턴 1줄 */}
             <div className="flex items-center gap-1.5">
@@ -1734,6 +2108,7 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
               </div>
             </div>
           </div>
+          )}
         </div>
       )}
 
@@ -1747,7 +2122,17 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
         const samePct = (comparison.sameRatio * 100);
         return (
           <div className="mb-4 p-3 sm:p-4 bg-white/70 rounded-lg border border-purple-200">
-            <div className="text-xs sm:text-sm font-semibold text-gray-700 mb-2">맨 앞자리 숫자가 직전보다 클/작을 확률</div>
+            <div className={`flex items-center ${isSectionCollapsed('firstDigit') ? '' : 'mb-2'}`}>
+              <CollapseTitle
+                collapsed={isSectionCollapsed('firstDigit')}
+                onToggle={() => toggleSectionCollapsed('firstDigit')}
+                className="text-xs sm:text-sm font-semibold text-gray-700"
+              >
+                맨 앞자리 숫자가 직전보다 클/작을 확률
+              </CollapseTitle>
+            </div>
+            {!isSectionCollapsed('firstDigit') && (
+            <>
             <p className="text-[10px] sm:text-xs text-gray-500 mb-2">첫 번째 자리만 비교, 과거 {total}회 기준</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
               <div className="flex items-center gap-2 p-2 sm:p-3 bg-green-50 rounded-lg border border-green-200">
@@ -1773,6 +2158,8 @@ export default function PredictionGenerator({ lotteryData, analyzedNumbers }: Pr
                 </div>
               )}
             </div>
+            </>
+            )}
           </div>
         );
       })()}
