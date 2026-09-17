@@ -210,6 +210,49 @@ function hasAnyDuplicateDigits(digits: number[]): boolean {
   return false;
 }
 
+/** 지정한 중복 숫자 중 하나라도 2회 이상 등장하는지 */
+function hasSpecifiedDuplicatePair(digits: number[], specified: number[]): boolean {
+  if (specified.length === 0) return true;
+  const counts: Record<number, number> = {};
+  for (const d of digits) counts[d] = (counts[d] || 0) + 1;
+  return specified.some((d) => (counts[d] || 0) >= 2);
+}
+
+/**
+ * 지정 중복 숫자가 2회 미만이면, 고정되지 않은 자리에 채워 쌍을 맞춘다.
+ */
+function ensureSpecifiedDuplicatePair(
+  digits: number[],
+  specified: number[],
+  fixed: (number | null)[] | undefined,
+  excluded: Set<number>
+): number[] {
+  const candidates = specified.filter((d) => d >= 0 && d <= 9 && !excluded.has(d));
+  if (candidates.length === 0) return digits;
+  if (hasSpecifiedDuplicatePair(digits, candidates)) return digits;
+
+  const result = [...digits];
+  const counts: Record<number, number> = {};
+  for (const d of result) counts[d] = (counts[d] || 0) + 1;
+
+  const dup =
+    candidates.find((d) => (counts[d] || 0) >= 1) ??
+    candidates[Math.floor(Math.random() * candidates.length)];
+
+  const unfixed: number[] = [];
+  for (let i = 0; i < 6; i++) {
+    if (getFixedDigit(fixed, i) === null) unfixed.push(i);
+  }
+  const slots = unfixed.filter((i) => result[i] !== dup);
+  let have = result.filter((d) => d === dup).length;
+  for (const pos of slots) {
+    if (have >= 2) break;
+    result[pos] = dup;
+    have++;
+  }
+  return result;
+}
+
 /** 제외 숫자 집합 (유효한 0~9만) */
 function buildExcludedSet(excluded?: number[]): Set<number> {
   const set = new Set<number>();
@@ -337,6 +380,10 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
   // 사용자가 배치 패턴을 지정했으면 2중복 + 배치 패턴 모드로 고정
   // 단, 중복 허용 안 함이면 배치 패턴(O 쌍) 무시
   const selectedPatternsList = disallowDup ? [] : (options?.selectedPatterns ?? []);
+  const selectedDupDigitsForGen = disallowDup
+    ? []
+    : (options?.selectedDuplicateDigits ?? []).filter((d) => d >= 0 && d <= 9 && !excludedSet.has(d));
+  const forceUserDuplicate = selectedDupDigitsForGen.length > 0;
   const forcePattern = selectedPatternsList.length > 0;
   // 선택된 패턴 중 랜덤으로 하나 선택
   const chosenPattern = forcePattern
@@ -347,7 +394,11 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
   // 배치 패턴을 고려한 숫자 생성 (1개 중복 패턴은 selectedFrequency가 2일 때만, 또는 사용자가 패턴 지정 시)
   // 중복 허용 안 함이면 배치 패턴 경로 사용 안 함
   const usePositionPattern = !disallowDup && (validPattern || (selectedFrequency === 2 && Math.random() < 0.5)) && positionPatternAnalysis.patternDetails.length > 0;
-  const effectiveFrequency = disallowDup ? 0 : (validPattern ? 2 : selectedFrequency);
+  // 중복 숫자를 지정했으면 빈도 0(전부 서로 다름)으로 가면 지정이 무시되므로 최소 2회로 고정
+  let effectiveFrequency = disallowDup ? 0 : (validPattern ? 2 : selectedFrequency);
+  if (forceUserDuplicate && effectiveFrequency < 2) {
+    effectiveFrequency = 2;
+  }
   
   let generatedDigits: number[];
   
@@ -792,6 +843,16 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
     result = rebuilt;
   }
 
+  // 자리 고정·재배치 후에도 지정한 중복 숫자가 쌍으로 남도록 보정
+  if (forceUserDuplicate) {
+    result = ensureSpecifiedDuplicatePair(
+      result,
+      selectedDupDigitsForGen,
+      fixedWithoutExcluded,
+      excludedSet
+    );
+  }
+
   return result;
 }
 
@@ -992,6 +1053,9 @@ export default function PredictionGenerator({
       };
 
       const excludedSetForRetry = new Set(excludedDigitOptions);
+      const specifiedDupForRetry = genOpts.selectedDuplicateDigits.filter(
+        (d) => d >= 0 && d <= 9 && !excludedSetForRetry.has(d)
+      );
       const savedKeys = new Set(savedPredictions.map(d => d.join(',')));
       let numbers = generatePrediction(lotteryData, genOpts);
       let retries = 0;
@@ -1001,7 +1065,11 @@ export default function PredictionGenerator({
         const outOfStdDev = limitToStdDevOption && Math.abs(s - avgSum) > stdDev;
         const hasDupDigits = disallowDuplicateDigitsOption && hasAnyDuplicateDigits(numbers);
         const hasExcluded = numbers.some((d) => excludedSetForRetry.has(d));
-        if (!isDuplicate && !outOfStdDev && !hasDupDigits && !hasExcluded) break;
+        const missingSpecifiedDup =
+          !disallowDuplicateDigitsOption &&
+          specifiedDupForRetry.length > 0 &&
+          !hasSpecifiedDuplicatePair(numbers, specifiedDupForRetry);
+        if (!isDuplicate && !outOfStdDev && !hasDupDigits && !hasExcluded && !missingSpecifiedDup) break;
         numbers = generatePrediction(lotteryData, genOpts);
         retries++;
       }
