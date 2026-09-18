@@ -218,6 +218,60 @@ function hasSpecifiedDuplicatePair(digits: number[], specified: number[]): boole
   return specified.some((d) => (counts[d] || 0) >= 2);
 }
 
+/** 2회 이상 등장하는 숫자 종류의 수 (예: 112355 → 2) */
+function countDuplicateKinds(digits: number[]): number {
+  const counts: Record<number, number> = {};
+  for (const d of digits) counts[d] = (counts[d] || 0) + 1;
+  return Object.values(counts).filter((c) => c >= 2).length;
+}
+
+/**
+ * 중복 숫자 2종 이상 비허용: 한 숫자만 2회 이상 남기고, 나머지 쌍은 고정되지 않은 자리에서 해체.
+ */
+function enforceAtMostOneDuplicateKind(
+  digits: number[],
+  keepDigit: number | null,
+  fixed: (number | null)[] | undefined,
+  excluded: Set<number>
+): number[] {
+  const result = [...digits];
+  const counts: Record<number, number> = {};
+  for (const d of result) counts[d] = (counts[d] || 0) + 1;
+  const kinds = Object.keys(counts)
+    .map(Number)
+    .filter((d) => (counts[d] || 0) >= 2);
+  if (kinds.length <= 1) return result;
+
+  const primary =
+    keepDigit != null && kinds.includes(keepDigit)
+      ? keepDigit
+      : kinds.reduce((a, b) => ((counts[a] || 0) >= (counts[b] || 0) ? a : b));
+
+  const used = new Set(result);
+  const keptFirst = new Set<number>([primary]);
+
+  for (let i = 0; i < 6; i++) {
+    const d = result[i];
+    if (d === primary) continue;
+    if ((counts[d] || 0) < 2) continue;
+    if (getFixedDigit(fixed, i) !== null) continue;
+    if (!keptFirst.has(d)) {
+      keptFirst.add(d);
+      continue;
+    }
+    const pool = Array.from({ length: 10 }, (_, n) => n).filter(
+      (n) => !excluded.has(n) && !used.has(n)
+    );
+    if (pool.length === 0) continue;
+    const next = pool[Math.floor(Math.random() * pool.length)];
+    result[i] = next;
+    used.add(next);
+    counts[d] = (counts[d] || 0) - 1;
+    counts[next] = (counts[next] || 0) + 1;
+  }
+  return result;
+}
+
 /**
  * 지정 중복 숫자가 2회 미만이면, 고정되지 않은 자리에 채워 쌍을 맞춘다.
  */
@@ -297,6 +351,7 @@ function randomUniqueDigits(excluded: Set<number> = new Set()): number[] {
  */
 function generatePrediction(lotteryData: LotteryData[], options?: PredictionOptions): number[] {
   const disallowDup = options?.disallowDuplicateDigits === true;
+  const allowMultiDup = options?.allowMultipleDuplicateDigits === true;
   const excludedSet = buildExcludedSet(options?.excludedDigits);
   const pickAllowedRandom = (): number => {
     const pool = allowedDigitPool(excludedSet);
@@ -457,8 +512,6 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
     // 패턴에 따라 숫자 배치
     generatedDigits = Array(6).fill(-1);
     const patternChars = selectedPattern.split('');
-    // false(기본): O 쌍만 중복 허용, X 자리는 서로·O와 모두 다른 숫자
-    const allowMultiDup = options?.allowMultipleDuplicateDigits === true;
     
     // 패턴의 O 위치에 중복 숫자 배치
     const oPositions: number[] = [];
@@ -643,6 +696,8 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
       duplicatePositions.forEach(pos => {
         generatedDigits[pos] = duplicateDigit;
       });
+
+      const usedDigitsForFreq = new Set<number>([duplicateDigit]);
       
       // 나머지 위치에 각 자리별 빈도와 전이 패턴을 고려한 숫자 배치
       for (let pos = 0; pos < 6; pos++) {
@@ -657,9 +712,10 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
             ? transitionData.transitionProbabilities[prevDigit] || {}
             : {};
           
-          // 중복 숫자·제외 숫자 제외하고 가중치 계산
+          // 중복 숫자·제외 숫자 제외. 2종 이상 비허용 시 이미 쓴 숫자도 제외
           for (let digit = 0; digit <= 9; digit++) {
             if (excludedSet.has(digit) || digit === duplicateDigit) continue;
+            if (!allowMultiDup && usedDigitsForFreq.has(digit)) continue;
             const freq = posData.digitFrequency[digit] || 0;
             // 전이 패턴 확률 (0~1 범위, 없으면 0.1 기본값)
             const transitionWeight = transitionProb[digit] || 0.1;
@@ -683,8 +739,22 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
                 break;
               }
             }
+            if (generatedDigits[pos] === -1) {
+              generatedDigits[pos] = weights[weights.length - 1].digit;
+            }
           } else {
-            generatedDigits[pos] = pickAllowedRandom();
+            const available = Array.from({ length: 10 }, (_, i) => i).filter((d) => {
+              if (excludedSet.has(d) || d === duplicateDigit) return false;
+              if (!allowMultiDup && usedDigitsForFreq.has(d)) return false;
+              return true;
+            });
+            generatedDigits[pos] =
+              available.length > 0
+                ? available[Math.floor(Math.random() * available.length)]
+                : pickAllowedRandom();
+          }
+          if (!allowMultiDup && generatedDigits[pos] !== -1) {
+            usedDigitsForFreq.add(generatedDigits[pos]);
           }
         }
       }
@@ -848,6 +918,21 @@ function generatePrediction(lotteryData: LotteryData[], options?: PredictionOpti
     result = ensureSpecifiedDuplicatePair(
       result,
       selectedDupDigitsForGen,
+      fixedWithoutExcluded,
+      excludedSet
+    );
+  }
+
+  // 2종 이상 허용이 아니면 중복 숫자 종류는 최대 1개
+  if (!disallowDup && !allowMultiDup) {
+    const keepDigit =
+      selectedDupDigitsForGen.length > 0
+        ? selectedDupDigitsForGen.find((d) => result.filter((x) => x === d).length >= 2) ??
+          selectedDupDigitsForGen[0]
+        : null;
+    result = enforceAtMostOneDuplicateKind(
+      result,
+      keepDigit ?? null,
       fixedWithoutExcluded,
       excludedSet
     );
@@ -1069,7 +1154,19 @@ export default function PredictionGenerator({
           !disallowDuplicateDigitsOption &&
           specifiedDupForRetry.length > 0 &&
           !hasSpecifiedDuplicatePair(numbers, specifiedDupForRetry);
-        if (!isDuplicate && !outOfStdDev && !hasDupDigits && !hasExcluded && !missingSpecifiedDup) break;
+        const extraDupKinds =
+          !disallowDuplicateDigitsOption &&
+          !allowMultipleDuplicateDigitsOption &&
+          countDuplicateKinds(numbers) > 1;
+        if (
+          !isDuplicate &&
+          !outOfStdDev &&
+          !hasDupDigits &&
+          !hasExcluded &&
+          !missingSpecifiedDup &&
+          !extraDupKinds
+        )
+          break;
         numbers = generatePrediction(lotteryData, genOpts);
         retries++;
       }
