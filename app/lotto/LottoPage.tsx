@@ -44,18 +44,18 @@ export function LottoPage() {
 
   return (
     <div
-      className={`flex flex-col bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 ${
+      className={`flex flex-col bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 pb-safe ${
         pageTab === "lotto" ? "h-dvh overflow-hidden" : "min-h-screen"
       }`}
     >
-      <div className="flex shrink-0 items-end justify-between gap-2 border-b border-slate-600/50 px-4 pt-3">
+      <div className="flex shrink-0 items-end justify-between gap-2 border-b border-slate-600/50 px-4 pt-safe pl-safe pr-safe">
         <div className="flex min-w-0">
           {(["lotto", "pension"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
               onClick={() => setPageTab(tab)}
-              className={`px-5 py-2.5 text-sm font-medium transition-colors relative z-10 -mb-px ${
+              className={`min-h-11 px-5 py-2.5 text-sm font-medium transition-colors relative z-10 -mb-px touch-manipulation ${
                 pageTab === tab
                   ? "border border-b-0 border-slate-600/50 rounded-t-lg bg-slate-800/50 text-amber-400"
                   : "border border-transparent text-slate-400 hover:text-slate-200 rounded-t-lg"

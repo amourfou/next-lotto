@@ -60,7 +60,7 @@ export default function PensionPage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="border-b border-gray-200 bg-white/80 backdrop-blur">
+      <div className="border-b border-gray-200 bg-white/80 backdrop-blur pt-safe">
         <div className="container mx-auto px-3 flex">
           <Link
             href="/lotto"
