@@ -1401,6 +1401,36 @@ export default function PredictionGenerator({
     };
   }, [openFixedDigitPos]);
 
+  // 훅은 아래 조기 return 앞에서 호출해야 함 (rules-of-hooks). 신호 강도는 렌더 중 계산 후 ref로 전달.
+  type SignalStrengths = { digits: any[]; patterns: any[] };
+  const latestSignalsRef = useRef<SignalStrengths | null>(null);
+  const shuffleGameRecommendations = useCallback((
+    digits: SignalStrengths['digits'],
+    patterns: SignalStrengths['patterns']
+  ) => {
+    const top4Digits = digits.slice(0, 4);
+    const top4Patterns = patterns.slice(0, 4);
+    const patternIndices = [0, 1, 2, 3];
+    for (let i = patternIndices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [patternIndices[i], patternIndices[j]] = [patternIndices[j], patternIndices[i]];
+    }
+    setGameRecommendations(top4Digits.map((d, i) => ({
+      digit: d,
+      pattern: top4Patterns[patternIndices[i]]?.key as string ?? null,
+    })));
+  }, []);
+
+  // 데이터 로드 시 최초 1회만 초기화
+  useEffect(() => {
+    const sig = latestSignalsRef.current;
+    if (lotteryData.length > 0 && sig && sig.digits.length > 0 && gameRecommendations.length === 0) {
+      shuffleGameRecommendations(sig.digits, sig.patterns);
+    }
+  // lotteryData가 바뀔 때만 재초기화
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lotteryData]);
+
   if (lotteryData.length === 0) {
     return null;
   }
@@ -1446,31 +1476,7 @@ export default function PredictionGenerator({
     return { patterns, digits };
   })();
 
-  const shuffleGameRecommendations = useCallback((
-    digits: typeof signalStrengths.digits,
-    patterns: typeof signalStrengths.patterns
-  ) => {
-    const top4Digits = digits.slice(0, 4);
-    const top4Patterns = patterns.slice(0, 4);
-    const patternIndices = [0, 1, 2, 3];
-    for (let i = patternIndices.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [patternIndices[i], patternIndices[j]] = [patternIndices[j], patternIndices[i]];
-    }
-    setGameRecommendations(top4Digits.map((d, i) => ({
-      digit: d,
-      pattern: top4Patterns[patternIndices[i]]?.key as string ?? null,
-    })));
-  }, []);
-
-  // 데이터 로드 시 최초 1회만 초기화
-  useEffect(() => {
-    if (signalStrengths.digits.length > 0 && gameRecommendations.length === 0) {
-      shuffleGameRecommendations(signalStrengths.digits, signalStrengths.patterns);
-    }
-  // lotteryData가 바뀔 때만 재초기화
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lotteryData]);
+  latestSignalsRef.current = signalStrengths;
 
   return (
     <div className="bg-gradient-to-r from-purple-50 via-blue-50 to-purple-50 rounded-lg shadow-lg p-4 sm:p-6 mb-4 sm:mb-6 lg:mb-8 border-2 border-purple-200">

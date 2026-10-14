@@ -1,14 +1,11 @@
 import { NextResponse } from "next/server";
-import { AUTH_COOKIE_NAME, authCookieOptions } from "@/lib/auth";
+import { clearSessionCookie } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
 
 /** 세션 쿠키 삭제 */
 export async function POST() {
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(AUTH_COOKIE_NAME, "", {
-    ...authCookieOptions(0),
-    maxAge: 0,
-  });
+  clearSessionCookie(res);
   return res;
 }

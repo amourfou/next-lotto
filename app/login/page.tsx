@@ -9,6 +9,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [name, setName] = useState("");
+  const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -19,6 +20,10 @@ function LoginForm() {
       setError("이름을 입력해 주세요.");
       return;
     }
+    if (!/^\d{6}$/.test(pin)) {
+      setError("PIN 숫자 6자리를 입력해 주세요.");
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -26,11 +31,12 @@ function LoginForm() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
+        body: JSON.stringify({ name: trimmed, pin }),
       });
       const json = await res.json();
       if (!res.ok) {
         setError(json.error || "로그인에 실패했습니다.");
+        setPin("");
         return;
       }
       const from = searchParams.get("from");
@@ -56,7 +62,7 @@ function LoginForm() {
             로또 번호 뽑기
           </h1>
           <p className="mt-2 text-sm text-slate-400">
-            등록된 이름을 입력하면 접속할 수 있습니다
+            이름과 PIN을 입력해 주세요
           </p>
         </div>
 
@@ -85,6 +91,29 @@ function LoginForm() {
             className="w-full rounded-xl border border-slate-600 bg-slate-900/80 px-4 py-3 text-base text-white placeholder:text-slate-500 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/30 disabled:opacity-60"
           />
 
+          <label
+            htmlFor="login-pin"
+            className="mb-2 mt-4 block text-sm font-medium text-slate-300"
+          >
+            PIN
+          </label>
+          <input
+            id="login-pin"
+            type="password"
+            inputMode="numeric"
+            autoComplete="current-password"
+            maxLength={6}
+            pattern="\d{6}"
+            value={pin}
+            onChange={(e) => {
+              setPin(e.target.value.replace(/\D/g, "").slice(0, 6));
+              if (error) setError(null);
+            }}
+            placeholder="숫자 6자리"
+            disabled={isLoading}
+            className="w-full rounded-xl border border-slate-600 bg-slate-900/80 px-4 py-3 text-base tracking-widest text-white placeholder:text-slate-500 placeholder:tracking-normal outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/30 disabled:opacity-60"
+          />
+
           {error && (
             <p
               role="alert"
@@ -105,7 +134,7 @@ function LoginForm() {
         </form>
 
         <p className="mt-6 text-center text-xs text-slate-500">
-          등록된 이름만 입장할 수 있습니다
+          PIN이 없으면 관리자에게 받아 주세요
         </p>
       </div>
     </div>

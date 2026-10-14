@@ -7,9 +7,10 @@ import {
   upsertPensionRoundOptions,
 } from "@/lib/pensionSupabaseUtils";
 
+import { guarded } from "@/lib/server/session";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   noStore();
   try {
     const body = (await request.json()) as {
@@ -82,3 +83,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = guarded("user", POSTHandler);

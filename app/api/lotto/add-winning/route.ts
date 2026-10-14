@@ -6,10 +6,11 @@ import {
   setLottoMeta,
 } from "@/lib/lottoSupabaseUtils";
 
+import { guarded } from "@/lib/server/session";
 export const dynamic = "force-dynamic";
 
 /** UI에 표시할 다음 저장 회차 = 현재 DB 최대 회차 + 1 */
-export async function GET() {
+async function GETHandler() {
   noStore();
   try {
     const max = await getMaxLottoRound();
@@ -28,7 +29,7 @@ export async function GET() {
  * 당첨 6개 + 보너스 1개를 lotto_rounds에 저장 (회차는 서버에서 max+1).
  * last_official_round 메타를 해당 회차로 갱신합니다.
  */
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   try {
     const body = (await request.json()) as { numbers?: unknown; bonus?: unknown };
     const raw = body.numbers;
@@ -98,3 +99,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const GET = guarded("user", GETHandler);
+export const POST = guarded("user", POSTHandler);

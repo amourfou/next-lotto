@@ -4,6 +4,7 @@ import {
   insertLottoDrawSettings,
 } from "@/lib/lottoSupabaseUtils";
 
+import { guarded } from "@/lib/server/session";
 export const dynamic = "force-dynamic";
 
 export type DrawSettingsPayload = {
@@ -42,7 +43,7 @@ function parseFilterStates(raw: string): Record<number, string> {
   }
 }
 
-export async function GET() {
+async function GETHandler() {
   try {
     const row = await getLatestLottoDrawSettings();
 
@@ -85,7 +86,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   try {
     const body = (await request.json()) as DrawSettingsPayload;
     const gameCount = Math.min(
@@ -152,3 +153,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const GET = guarded("user", GETHandler);
+export const POST = guarded("admin", POSTHandler);

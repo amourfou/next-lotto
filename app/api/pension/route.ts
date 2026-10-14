@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { getAllPensionRoundsRaw } from "@/lib/pensionSupabaseUtils";
 
+import { guarded } from "@/lib/server/session";
 export const dynamic = "force-dynamic";
 
 const NO_CACHE_HEADERS = {
@@ -26,7 +27,7 @@ function pensionStatsHeader(rows: number[][]): Record<string, string> {
  * 연금복권 당첨 데이터 — Supabase `pension_lottery_rounds`만 사용.
  * public/PensionLottery.json 등 로컬 파일은 읽지 않습니다.
  */
-export async function GET() {
+async function GETHandler() {
   noStore();
   try {
     const data = await getAllPensionRoundsRaw();
@@ -45,3 +46,5 @@ export async function GET() {
     );
   }
 }
+
+export const GET = guarded("user", GETHandler);

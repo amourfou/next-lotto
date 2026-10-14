@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { getMaxLottoRound } from "@/lib/lottoSupabaseUtils";
 
+import { guarded } from "@/lib/server/session";
 export const dynamic = "force-dynamic";
 
 /**
  * 추출/클립보드용 “다음 회차” = lotto_rounds에 저장된 최대 회차 + 1.
  * (last_official_round 메타만 쓰면 메타가 DB보다 뒤처진 경우 최근 당첨 회차와 같은 숫자가 나올 수 있음)
  */
-export async function GET() {
+async function GETHandler() {
   noStore();
   try {
     const maxRound = await getMaxLottoRound();
@@ -22,3 +23,5 @@ export async function GET() {
     );
   }
 }
+
+export const GET = guarded("user", GETHandler);

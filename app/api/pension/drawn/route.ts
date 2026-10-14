@@ -6,9 +6,10 @@ import {
   deletePensionDrawnByRound,
 } from "@/lib/pensionSupabaseUtils";
 
+import { guarded } from "@/lib/server/session";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function GETHandler() {
   noStore();
   try {
     const maxOrder = await getMaxPensionOrderNum();
@@ -29,7 +30,7 @@ export async function GET() {
   }
 }
 
-export async function DELETE() {
+async function DELETEHandler() {
   noStore();
   try {
     const maxOrder = await getMaxPensionOrderNum();
@@ -44,3 +45,6 @@ export async function DELETE() {
     );
   }
 }
+
+export const GET = guarded("user", GETHandler);
+export const DELETE = guarded("user", DELETEHandler);

@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { getLottoAnalysisRow } from "@/lib/lottoSupabaseUtils";
 
+import { guarded } from "@/lib/server/session";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function GETHandler() {
   noStore();
   try {
     const row = await getLottoAnalysisRow();
@@ -94,3 +95,5 @@ export async function GET() {
     );
   }
 }
+
+export const GET = guarded("user", GETHandler);

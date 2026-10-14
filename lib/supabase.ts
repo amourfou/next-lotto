@@ -1,13 +1,16 @@
-import { createClient } from "@supabase/supabase-js";
+import "server-only";
+import { requireDb } from "@/lib/server/db";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-// Supabase 설정 (참고: HaanRiver 방식)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://your-project.supabase.co";
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "your-anon-key";
-
-export const supabase = createClient(supabaseUrl, supabaseKey, {
-  global: {
-    fetch: (url: RequestInfo | URL, init?: RequestInit) =>
-      fetch(url, { ...init, cache: "no-store" }),
+/**
+ * 서버 전용 DB 클라이언트 (service role). 브라우저 번들에 포함되면 빌드가 실패한다(server-only).
+ * 기존 호출부(`supabase.from(...)`) 호환을 위해 지연 생성 프록시로 내보낸다.
+ */
+export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
+  get(_t, prop) {
+    const db = requireDb() as unknown as Record<PropertyKey, unknown>;
+    const v = db[prop];
+    return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(db) : v;
   },
 });
 

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pensionOrderExists, insertPensionRound, getPensionRoundsCount } from '@/lib/pensionSupabaseUtils';
 
+import { guarded } from "@/lib/server/session";
 export const dynamic = 'force-dynamic';
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   try {
     const body = await request.json();
     const { newData } = body;
@@ -46,3 +47,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = guarded("user", POSTHandler);

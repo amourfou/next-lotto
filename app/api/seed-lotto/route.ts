@@ -3,11 +3,12 @@ import fs from "fs";
 import path from "path";
 import { upsertLottoRounds, setLottoMeta } from "@/lib/lottoSupabaseUtils";
 
+import { guarded } from "@/lib/server/session";
 export const dynamic = "force-dynamic";
 
 const LOTTO_FILE = path.join(process.cwd(), "LottoNumber.txt");
 
-export async function POST() {
+async function POSTHandler() {
   try {
     if (!fs.existsSync(LOTTO_FILE)) {
       return NextResponse.json(
@@ -88,3 +89,5 @@ export async function POST() {
     );
   }
 }
+
+export const POST = guarded("admin", POSTHandler);

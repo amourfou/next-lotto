@@ -4,6 +4,7 @@ import {
   upsertLottoAnalysis,
 } from "@/lib/lottoSupabaseUtils";
 
+import { guarded } from "@/lib/server/session";
 export const dynamic = "force-dynamic";
 
 /** Prev 구간 분석 시작 회차 (이 회차부터 직전 20회 기준으로 분류·출현 집계) */
@@ -342,7 +343,7 @@ function analyzePrevBuckets(
   };
 }
 
-export async function POST() {
+async function POSTHandler() {
   try {
     const rows = await getWinningRoundsForAnalysis();
 
@@ -534,3 +535,5 @@ export async function POST() {
     );
   }
 }
+
+export const POST = guarded("user", POSTHandler);

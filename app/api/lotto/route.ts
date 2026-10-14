@@ -6,9 +6,10 @@ import {
   getLottoRoundsCount,
 } from "@/lib/lottoSupabaseUtils";
 
+import { guarded } from "@/lib/server/session";
 export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   noStore();
   try {
     const { searchParams } = new URL(request.url);
@@ -45,3 +46,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = guarded("user", GETHandler);

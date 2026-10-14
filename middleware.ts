@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AUTH_COOKIE_NAME, parseSession } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, verifySession } from "@/lib/sessionToken";
 
-const PUBLIC_PATHS = ["/login", "/~offline"];
+/** 로그인 없이 열리는 경로 */
+const PUBLIC_PAGES = ["/login", "/~offline"];
+const PUBLIC_APIS = ["/api/auth/login", "/api/auth/logout"];
 
-function isPublicPath(pathname: string): boolean {
-  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
-    return true;
-  }
-  // API·정적 리소스는 미들웨어에서 페이지 보호만 담당 (API 자체는 기존 동작 유지)
-  if (
-    pathname.startsWith("/api/") ||
+function isStatic(pathname: string): boolean {
+  return (
     pathname.startsWith("/_next/") ||
     pathname.startsWith("/icons/") ||
     pathname === "/favicon.ico" ||
@@ -17,44 +14,38 @@ function isPublicPath(pathname: string): boolean {
     pathname === "/sw.js" ||
     pathname.startsWith("/workbox-") ||
     pathname.startsWith("/fallback-")
-  ) {
-    return true;
-  }
-  return false;
+  );
 }
 
-export function middleware(request: NextRequest) {
+/**
+ * 1차 관문: 서명된 세션 쿠키가 있어야 페이지·/api/* 접근 가능.
+ * (PIN 변경 반영과 role(관리자) 확인은 각 API 라우트에서 DB로 다시 검사)
+ */
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const session = parseSession(request.cookies.get(AUTH_COOKIE_NAME)?.value);
-  const isLoggedIn = session !== null;
+  if (isStatic(pathname)) return NextResponse.next();
+  if (PUBLIC_APIS.includes(pathname)) return NextResponse.next();
 
-  // 로그인 페이지: 이미 로그인되어 있으면 메인으로
+  const isLoggedIn = (await verifySession(request.cookies.get(AUTH_COOKIE_NAME)?.value)) !== null;
+
+  if (pathname.startsWith("/api/")) {
+    if (!isLoggedIn) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+    return NextResponse.next();
+  }
+
   if (pathname === "/login" || pathname.startsWith("/login/")) {
-    if (isLoggedIn) {
-      return NextResponse.redirect(new URL("/lotto", request.url));
-    }
-    return NextResponse.next();
+    return isLoggedIn ? NextResponse.redirect(new URL("/lotto", request.url)) : NextResponse.next();
   }
+  if (PUBLIC_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return NextResponse.next();
 
-  if (isPublicPath(pathname)) {
-    return NextResponse.next();
-  }
-
-  // 보호된 페이지: 미로그인 시 로그인으로
   if (!isLoggedIn) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("from", pathname);
     return NextResponse.redirect(loginUrl);
   }
-
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: [
-    /*
-     * 정적 파일·이미지 제외. 페이지 라우트와 필요한 경로만 검사.
-     */
-    "/((?!_next/static|_next/image|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|js|css|map|json|txt)$).*)",
-  ],
+  matcher: ["/((?!_next/static|_next/image|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|js|css|map|json|txt)$).*)"],
 };
