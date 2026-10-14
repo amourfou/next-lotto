@@ -1,5 +1,6 @@
 'use client';
 
+import { DrawSyncPanel } from "@/app/components/DrawSyncPanel";
 import { useState, useEffect } from 'react';
 import { Plus, Save, Download, RefreshCw } from 'lucide-react';
 import { LotteryData } from '../lib/dataParser';
@@ -168,6 +169,7 @@ export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderPr
   if (isAdmin === false) {
     return (
       <div className="bg-white rounded-lg shadow-lg border border-indigo-100 p-3 sm:p-4 text-sm text-gray-500">
+        <DrawSyncPanel game="pension" />
         당첨 데이터 추가는 관리자만 할 수 있어요.
       </div>
     );
@@ -176,6 +178,9 @@ export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderPr
 
   return (
     <div className="bg-white rounded-lg shadow-lg border border-indigo-100 p-3 sm:p-4">
+      <div className="mb-3">
+        <DrawSyncPanel game="pension" onSynced={onDataAdded} />
+      </div>
       <div className="flex items-center justify-between gap-2 mb-3">
         <h2 className="text-sm font-bold text-gray-800 flex items-center gap-1.5 min-w-0">
           <Plus size={16} className="text-indigo-600 shrink-0" />

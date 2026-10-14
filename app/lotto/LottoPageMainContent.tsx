@@ -1,5 +1,6 @@
 "use client";
 
+import { DrawSyncPanel } from "@/app/components/DrawSyncPanel";
 import React, { useCallback, useEffect, useState } from "react";
 import { useIsAdmin } from "@/lib/client/useIsAdmin";
 import NumberFilter, { type NumberFilterState, type FilterCategory } from "../components/NumberFilter";
@@ -442,6 +443,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
       {s.mainTab === "stats" ? (
         <div className="flex-1 min-h-0 w-full overflow-y-auto flex flex-col items-center pb-12 [scrollbar-width:thin]">
         <div className="w-full max-w-3xl space-y-4">
+          <DrawSyncPanel game="lotto" onSynced={() => s.fetchDbScreenData()} />
           <div className="flex flex-wrap items-center justify-center gap-2">
             {isAdmin ? (
             <button

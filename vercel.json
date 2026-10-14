@@ -1,0 +1,8 @@
+{
+  "crons": [
+    { "path": "/api/cron/sync-draws?game=lotto", "schedule": "0 13 * * 6" },
+    { "path": "/api/cron/sync-draws?game=lotto&run=retry", "schedule": "0 18 * * 6" },
+    { "path": "/api/cron/sync-draws?game=pension", "schedule": "0 12 * * 4" },
+    { "path": "/api/cron/sync-draws?game=pension&run=retry", "schedule": "0 18 * * 4" }
+  ]
+}

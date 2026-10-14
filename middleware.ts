@@ -25,6 +25,8 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (isStatic(pathname)) return NextResponse.next();
   if (PUBLIC_APIS.includes(pathname)) return NextResponse.next();
+  // 크론 라우트는 세션 대신 Authorization: Bearer CRON_SECRET 을 라우트에서 검사
+  if (pathname.startsWith("/api/cron/")) return NextResponse.next();
 
   const isLoggedIn = (await verifySession(request.cookies.get(AUTH_COOKIE_NAME)?.value)) !== null;
 
