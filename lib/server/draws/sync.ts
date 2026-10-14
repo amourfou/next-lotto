@@ -179,7 +179,11 @@ export async function syncPension(dryRun: boolean): Promise<SyncResult> {
       const row = toRow(d);
       const old = existing.get(n);
       if (old) {
-        if (rowKey(old) !== rowKey(row)) r.problems.push(`${n}회: DB에 저장된 값과 공식 값이 다름 (덮어쓰지 않음, 직접 확인 필요)`);
+        if (rowKey(old) !== rowKey(row)) {
+          // 이미 저장된 과거 회차의 불일치는 덮어쓰지 않고 경고만 남김 (새 회차 저장은 계속)
+          const show = (x: PensionRow) => `${x.jo}조 ${[x.d1, x.d2, x.d3, x.d4, x.d5, x.d6].join("")} 보너스 ${[x.b1, x.b2, x.b3, x.b4, x.b5, x.b6].join("")}`;
+          r.notes.push(`경고: ${n}회 DB(${show(old)})와 공식(${show(row)}) 값이 다름, 덮어쓰지 않음`);
+        }
         else r.unchanged.push(n);
       } else {
         toSave.push(row);

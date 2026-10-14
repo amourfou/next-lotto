@@ -1,4 +1,8 @@
 {
+  "functions": {
+    "app/api/cron/sync-draws/route.ts": { "regions": ["icn1"] },
+    "app/api/admin/sync-draws/route.ts": { "regions": ["icn1"] }
+  },
   "crons": [
     { "path": "/api/cron/sync-draws?game=lotto", "schedule": "0 13 * * 6" },
     { "path": "/api/cron/sync-draws?game=lotto&run=retry", "schedule": "0 18 * * 6" },
