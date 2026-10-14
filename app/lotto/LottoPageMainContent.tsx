@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { useIsAdmin } from "@/lib/client/useIsAdmin";
 import NumberFilter, { type NumberFilterState, type FilterCategory } from "../components/NumberFilter";
 import GroupCountSelector from "../components/GroupCountSelector";
 
@@ -292,6 +293,7 @@ type Scope = {
 };
 
 export function LottoPageMainContent({ scope }: { scope: Record<string, unknown> }) {
+  const isAdmin = useIsAdmin();
   const s = scope as unknown as Scope;
 
   const [selectedHeatCols, setSelectedHeatCols] = useState<Set<number>>(new Set());
@@ -441,6 +443,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
         <div className="flex-1 min-h-0 w-full overflow-y-auto flex flex-col items-center pb-12 [scrollbar-width:thin]">
         <div className="w-full max-w-3xl space-y-4">
           <div className="flex flex-wrap items-center justify-center gap-2">
+            {isAdmin ? (
             <button
               type="button"
               onClick={() => (showWinningForm ? setShowWinningForm(false) : openWinningForm())}
@@ -449,6 +452,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
             >
               {showWinningForm ? "−" : "+"}
             </button>
+            ) : null}
             <button
               type="button"
               onClick={async () => {
@@ -500,7 +504,7 @@ export function LottoPageMainContent({ scope }: { scope: Record<string, unknown>
             </button>
           </div>
 
-          {showWinningForm && (
+          {isAdmin && showWinningForm && (
             <div className="rounded-xl border border-emerald-600/40 bg-slate-900/70 py-2 px-3 w-full max-w-full">
               <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
                 <span className="text-emerald-400/90 text-xs font-semibold shrink-0">당첨 추가</span>

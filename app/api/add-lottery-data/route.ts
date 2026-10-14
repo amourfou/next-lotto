@@ -48,4 +48,4 @@ async function POSTHandler(request: NextRequest) {
   }
 }
 
-export const POST = guarded("user", POSTHandler);
+export const POST = guarded("admin", POSTHandler);

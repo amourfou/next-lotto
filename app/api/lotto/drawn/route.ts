@@ -47,4 +47,4 @@ async function DELETEHandler() {
 }
 
 export const GET = guarded("user", GETHandler);
-export const DELETE = guarded("user", DELETEHandler);
+export const DELETE = guarded("admin", DELETEHandler);

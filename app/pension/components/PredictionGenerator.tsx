@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { LotteryData, analyzePositionFrequency, analyzeDigitSum, analyzeDuplicatePatterns, analyzeDuplicatePositionPatterns, analyzeDuplicateFrequency, analyzePreviousRoundComparison, analyzePositionTransition, analyzeFirstDigitComparison, analyzeDigitConsecutiveAppearance } from '../lib/dataParser';
 import { Sparkles, RefreshCw, Dice6, TrendingUp, TrendingDown, Save, Trash2, History, X, ChevronDown } from 'lucide-react';
 import InfoTooltip from './InfoTooltip';
+import { useIsAdmin } from '@/lib/client/useIsAdmin';
 import type { ReactNode } from 'react';
 
 interface PredictionGeneratorProps {
@@ -946,6 +947,7 @@ export default function PredictionGenerator({
   analyzedNumbers,
   onExcludedDigitsChange,
 }: PredictionGeneratorProps) {
+  const isAdmin = useIsAdmin();
   const [predictedNumbers, setPredictedNumbers] = useState<number[] | null>(null);
   const [predictionSum, setPredictionSum] = useState<number | null>(null);
   const [predictionPattern, setPredictionPattern] = useState<string | null>(null);
@@ -2417,7 +2419,7 @@ export default function PredictionGenerator({
             </div>
 
             {/* 팝업 푸터 */}
-            {!isHistoryLoading && historyData.length > 0 && (
+            {!isHistoryLoading && historyData.length > 0 && isAdmin && (
               <div className="px-5 py-3 border-t border-gray-200 flex justify-end">
                 <button
                   onClick={async () => {

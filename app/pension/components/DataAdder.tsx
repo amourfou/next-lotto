@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Save, Download, RefreshCw } from 'lucide-react';
 import { LotteryData } from '../lib/dataParser';
+import { useIsAdmin } from '@/lib/client/useIsAdmin';
 
 interface DataAdderProps {
   onDataAdded?: () => void;
@@ -10,6 +11,7 @@ interface DataAdderProps {
 }
 
 export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderProps) {
+  const isAdmin = useIsAdmin();
   const [formData, setFormData] = useState<number[]>(() => {
     // 기본값: 14개 0으로 초기화
     return Array(14).fill(0);
@@ -162,6 +164,15 @@ export default function DataAdder({ onDataAdded, lotteryData = [] }: DataAdderPr
     }
     setIsReanalyzing(false);
   };
+
+  if (isAdmin === false) {
+    return (
+      <div className="bg-white rounded-lg shadow-lg border border-indigo-100 p-3 sm:p-4 text-sm text-gray-500">
+        당첨 데이터 추가는 관리자만 할 수 있어요.
+      </div>
+    );
+  }
+  if (isAdmin === null) return null;
 
   return (
     <div className="bg-white rounded-lg shadow-lg border border-indigo-100 p-3 sm:p-4">
